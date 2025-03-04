@@ -11,13 +11,14 @@ const LoginPage: React.FC = () => {
 	const [password, setPassword] = useState('')
 	const [errorMessage, setErrorMessage] = useState('')
 
-	// Подгрузка списка пользователей при вводе
+	// Подгрузка списка пользователей (фильтрация) при вводе searchQuery
 	useEffect(() => {
 		filterUsers(searchQuery)
 			.then(data => setUsers(data))
 			.catch(err => console.error(err))
 	}, [searchQuery])
 
+	// При сабмите формы логина
 	const handleLogin = async (e: React.FormEvent) => {
 		e.preventDefault()
 		if (!selectedUser || !password) {
@@ -27,16 +28,17 @@ const LoginPage: React.FC = () => {
 
 		try {
 			const res = await login(selectedUser, password)
-			// Сохраняем в localStorage
+			// Сохраняем JWT токен и прочие данные в localStorage
 			localStorage.setItem('jwtToken', res.token)
 			localStorage.setItem('userName', res.userName)
 			if (res.divisionId) {
 				localStorage.setItem('divisionId', res.divisionId.toString())
 			}
-			// Переход на главную
+
+			// Переход на главную (HomePage)
 			navigate('/')
 		} catch (err: any) {
-			console.log(err)
+			console.error(err)
 			setErrorMessage(err.response?.data || 'Ошибка при логине')
 		}
 	}
@@ -55,6 +57,7 @@ const LoginPage: React.FC = () => {
 						placeholder='Введите часть имени...'
 					/>
 				</div>
+
 				<div className='mb-3'>
 					<label>Пользователь:</label>
 					<select
@@ -70,6 +73,7 @@ const LoginPage: React.FC = () => {
 						))}
 					</select>
 				</div>
+
 				<div className='mb-3'>
 					<label>Пароль:</label>
 					<input
@@ -79,7 +83,9 @@ const LoginPage: React.FC = () => {
 						onChange={e => setPassword(e.target.value)}
 					/>
 				</div>
+
 				{errorMessage && <div className='text-danger'>{errorMessage}</div>}
+
 				<button type='submit' className='btn btn-primary'>
 					Войти
 				</button>

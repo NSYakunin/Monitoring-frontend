@@ -1,7 +1,8 @@
 import axios from 'axios'
 
+// Создаём экземпляр axios
 const authClient = axios.create({
-	baseURL: 'http://localhost:5100', // ваш URL
+	baseURL: 'http://localhost:5100', // сюда поставить URL вашего ASP.NET
 })
 
 // Интерфейсы
