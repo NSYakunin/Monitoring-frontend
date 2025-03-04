@@ -22,7 +22,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 					{/* Логотип/название */}
 					<Navbar.Brand as={Link} to='/'>
 						<img
-							src='/logo192.png'
+							src='/logom.png'
 							alt='Мониторинг'
 							style={{ height: '40px', marginRight: '8px' }}
 						/>
@@ -52,9 +52,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 			<footer className='main-footer mt-auto py-3'>
 				<div className='container text-center'>
 					<span className='footer-text'>
-						Copyright © АО "НИИПМ" ВОРОНЕЖ, 2025.
-						<br />
-						Все права защищены.
+						Copyright © АО "НИИПМ" ВОРОНЕЖ, 2025. Все права защищены.
 					</span>
 				</div>
 			</footer>
