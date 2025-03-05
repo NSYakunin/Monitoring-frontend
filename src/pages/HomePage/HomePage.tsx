@@ -1,4 +1,5 @@
 // src/pages/HomePage/HomePage.tsx
+
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -10,7 +11,6 @@ import {
 } from '../../api/workItemsApi'
 import './HomePage.css'
 
-// Интерфейс для фильтров
 interface FilterState {
 	selectedDivision: number
 	startDate: string
@@ -43,7 +43,7 @@ const HomePage: React.FC = () => {
 		search: '',
 	})
 
-	// Проверяем токен при монтировании
+	// Проверка токена
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
 		if (!token) {
@@ -51,30 +51,38 @@ const HomePage: React.FC = () => {
 			return
 		}
 
-		// Загружаем список AllowedDivisions
+		// 1) Загружаем список доступных отделов
 		getAllowedDivisions()
 			.then(divs => {
 				setAllowedDivisions(divs)
+				if (divs.length === 0) {
+					// Если у пользователя нет доступных отделов - странно, можно обработать ошибку
+					return
+				}
 
-				// Пытаемся взять divisionId из localStorage
+				// 2) Пытаемся взять сохранённый divisionId из localStorage
 				const storedDivId = localStorage.getItem('divisionId')
 				let divIdFromStorage = 0
 				if (storedDivId) {
 					divIdFromStorage = parseInt(storedDivId, 10)
 				}
 
-				// Если он есть в списке – используем, иначе первый доступный
-				let defaultDiv = divs[0] || 0
+				// 3) Проверяем, есть ли он в списке доступных
+				let defaultDiv = divs[0] // По умолчанию берём первый
 				if (divs.includes(divIdFromStorage)) {
 					defaultDiv = divIdFromStorage
 				}
 
-				setFilters(prev => ({ ...prev, selectedDivision: defaultDiv }))
+				// Устанавливаем в filters
+				setFilters(prev => ({
+					...prev,
+					selectedDivision: defaultDiv,
+				}))
 			})
 			.catch(err => console.error(err))
 	}, [navigate])
 
-	// При смене selectedDivision – загружаем списки исполнителей/принимающих
+	// При смене selectedDivision — грузим списки исполнителей/принимающих
 	useEffect(() => {
 		if (!filters.selectedDivision) return
 
@@ -85,12 +93,10 @@ const HomePage: React.FC = () => {
 		getApprovers(filters.selectedDivision)
 			.then(apprs => setApproversList(apprs))
 			.catch(err => console.error(err))
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [filters.selectedDivision])
 
-	// При любом изменении filters (включая selectedDivision), подгружаем workItems
+	// При любом изменении filters, подгружаем workItems
 	useEffect(() => {
-		// Если еще не выбрано подразделение, не грузим
 		if (!filters.selectedDivision) return
 
 		loadWorkItems()
@@ -104,7 +110,8 @@ const HomePage: React.FC = () => {
 			filters.endDate,
 			filters.executor,
 			filters.approver,
-			filters.search
+			filters.search,
+			filters.selectedDivision // <-- передаём divisionId
 		)
 			.then(data => {
 				console.log('Пришли данные:', data)
@@ -112,11 +119,11 @@ const HomePage: React.FC = () => {
 			})
 			.catch(err => {
 				console.error('Ошибка при загрузке:', err)
-				// Если 401/403 – можно отправить на логин
+				// Если 401/403 – можно редирект на логин
 			})
 	}
 
-	// Обработка изменения любого поля
+	// Обработка изменения любого поля фильтра
 	const handleChange = (
 		e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
 	) => {
@@ -125,6 +132,17 @@ const HomePage: React.FC = () => {
 			...prev,
 			[name]: value,
 		}))
+	}
+
+	// Изменение выбора подразделения
+	const handleDivisionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+		const newDivId = Number(e.target.value)
+		setFilters(prev => ({
+			...prev,
+			selectedDivision: newDivId,
+		}))
+		// И сохраняем в localStorage (аналогично cookies в Razor)
+		localStorage.setItem('divisionId', String(newDivId))
 	}
 
 	// Выход
@@ -189,19 +207,14 @@ const HomePage: React.FC = () => {
 					</div>
 
 					<div className='filter-block'>
-						<label htmlFor='divisionId' className='form-label'>
+						<label htmlFor='selectedDivision' className='form-label'>
 							Подразделение:
 						</label>
 						<select
 							id='selectedDivision'
 							name='selectedDivision'
 							value={String(filters.selectedDivision)}
-							onChange={e =>
-								setFilters(prev => ({
-									...prev,
-									selectedDivision: Number(e.target.value),
-								}))
-							}
+							onChange={handleDivisionChange}
 							className='form-select'
 						>
 							{allowedDivisions.map(divId => (
@@ -275,25 +288,20 @@ const HomePage: React.FC = () => {
 					<thead>
 						<tr className='custom-header'>
 							<th>№</th>
-							<th>Наименование документа</th>
-							<th>Наименование работы</th>
+							<th>Документ</th>
+							<th>Работа</th>
 							<th>Исполнители</th>
-							<th>Контролирующий</th>
+							<th>Контроллер</th>
 							<th>Принимающий</th>
 							<th>План</th>
 							<th>Корр1</th>
 							<th>Корр2</th>
 							<th>Корр3</th>
-							<th>
-								<span className='toggle-all-btn' title='Выделить/снять все'>
-									📌
-								</span>
-							</th>
+							<th>Выбрать</th>
 						</tr>
 					</thead>
 					<tbody>
 						{workItems.map((item, index) => {
-							// при желании можно добавить логику подсветки строк
 							return (
 								<tr key={index}>
 									<td>{index + 1}</td>
@@ -312,7 +320,6 @@ const HomePage: React.FC = () => {
 									<td>{item.korrect3}</td>
 									<td>
 										<input type='checkbox' />
-										{/* Кнопка "заявка" (заглушка) */}
 										<button
 											type='button'
 											className='btn btn-sm btn-outline-secondary ms-2'

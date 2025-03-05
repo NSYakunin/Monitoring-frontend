@@ -15,9 +15,10 @@ export interface WorkItemDto {
 }
 
 const apiClient = axios.create({
-	baseURL: 'http://localhost:5100',
+	baseURL: 'http://localhost:5100', // ваш адрес API
 })
 
+// Подставляем JWT из localStorage
 apiClient.interceptors.request.use(config => {
 	const token = localStorage.getItem('jwtToken')
 	if (token && config.headers) {
@@ -26,16 +27,24 @@ apiClient.interceptors.request.use(config => {
 	return config
 })
 
-// Запрос на список workItems c фильтрами
+// Добавили divisionId
 export async function getFilteredWorkItems(
 	startDate?: string,
 	endDate?: string,
 	executor?: string,
 	approver?: string,
-	search?: string
+	search?: string,
+	divisionId?: number
 ): Promise<WorkItemDto[]> {
 	const resp = await apiClient.get<WorkItemDto[]>('/api/WorkItems', {
-		params: { startDate, endDate, executor, approver, search },
+		params: {
+			startDate,
+			endDate,
+			executor,
+			approver,
+			search,
+			divisionId, // <-- передаём
+		},
 	})
 	return resp.data
 }
@@ -62,7 +71,7 @@ export async function getApprovers(divisionId: number): Promise<string[]> {
 	return resp.data
 }
 
-// "Обновить кэш" (по аналогии)
+// Сброс кэша
 export async function clearWorkItemsCache(divisionId: number): Promise<void> {
 	await apiClient.post(`/api/WorkItems/ClearCache?divisionId=${divisionId}`)
 }
