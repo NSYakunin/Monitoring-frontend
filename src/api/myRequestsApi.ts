@@ -1,4 +1,3 @@
-// src/api/myRequestsApi.ts
 import axios from 'axios'
 
 const requestsClient = axios.create({
@@ -13,7 +12,6 @@ requestsClient.interceptors.request.use(config => {
 	return config
 })
 
-// Модель заявки
 export interface MyRequestDto {
 	id: number
 	documentName: string
@@ -25,43 +23,38 @@ export interface MyRequestDto {
 	korrect1?: string
 	korrect2?: string
 	korrect3?: string
-	requestType: string // "факт", "корр1", ...
+	requestType: string
 	proposedDate?: string
 	sender: string
 	note: string
 	workDocumentNumber: string
+	isDone?: boolean
+	status?: string
 }
 
-// Ответ от сервера на изменение статуса
-interface ChangeStatusResponse {
-	success: boolean
-	message?: string
-}
-
-// Получить список "моих входящих заявок"
+// Возвращает список "Мои входящие заявки"
 export async function getMyRequests(): Promise<MyRequestDto[]> {
-	// Пример: GET /api/MyRequests
 	const resp = await requestsClient.get<MyRequestDto[]>('/api/MyRequests')
 	return resp.data
 }
 
-// Установить (обновить) статус заявки
+interface ChangeStatusResp {
+	success: boolean
+	message?: string
+}
+
+// Установить статус заявки
 export async function setRequestStatus(
 	requestId: number,
 	docNumber: string,
-	newStatus: 'Accepted' | 'Declined',
-	requestType?: string,
-	proposedDate?: string
-): Promise<ChangeStatusResponse> {
-	// Пример: POST /api/MyRequests/SetRequestStatus
-	const resp = await requestsClient.post<ChangeStatusResponse>(
+	newStatus: 'Accepted' | 'Declined'
+): Promise<ChangeStatusResp> {
+	const resp = await requestsClient.post<ChangeStatusResp>(
 		'/api/MyRequests/SetRequestStatus',
 		{
 			requestId,
 			documentNumber: docNumber,
 			newStatus,
-			requestType,
-			proposedDate,
 		}
 	)
 	return resp.data

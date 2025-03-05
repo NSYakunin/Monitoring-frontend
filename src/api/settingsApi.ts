@@ -1,4 +1,3 @@
-// src/api/settingsApi.ts
 import axios from 'axios'
 
 const settingsClient = axios.create({
@@ -13,73 +12,87 @@ settingsClient.interceptors.request.use(config => {
 	return config
 })
 
-// Для отображения списка пользователей (активных/неактивных)
-export interface UserInfo {
-	userName: string // какой-то логин
-	fullName: string // ФИО
-	isActive: boolean
-}
-
-// Настройки приватности
 export interface PrivacySettings {
 	canCloseWork: boolean
 	canSendCloseRequest: boolean
 	canAccessSettings: boolean
 }
 
-// Модель данных для подгрузки/отображения в Settings
 export interface SettingsLoadData {
-	allUsers: string[] // Имена пользователей для выпадающего списка
-	subdivisions: Array<{
+	allUsers: string[]
+	subdivisions: {
 		idDivision: number
 		smallNameDivision: string
-	}>
-	// Ниже — то, что вы будете отображать на форме конкретного выбранного пользователя:
-	selectedUserName?: string
-	currentPasswordForSelectedUser?: string
-	currentPrivacySettings?: PrivacySettings
-	userSelectedDivisionIds?: number[]
-	isUserValid?: boolean // активен ли текущий пользователь
+	}[]
+	selectedUserName: string | null
+	currentPasswordForSelectedUser: string | null
+	currentPrivacySettings: PrivacySettings | null
+	userSelectedDivisionIds: number[]
+	isUserValid: boolean
 }
 
-// Пример: загрузить данные для отображения настроек
-// (как именно вы реализуете – зависит от вашего бэка)
+// Загрузка (GET /api/Settings?showInactive=&selectedUser=..)
 export async function loadSettings(
-	showInactive: boolean
+	showInactive: boolean,
+	selectedUser: string
 ): Promise<SettingsLoadData> {
 	const resp = await settingsClient.get<SettingsLoadData>('/api/Settings', {
-		params: { showInactive },
+		params: {
+			showInactive,
+			selectedUser,
+		},
 	})
 	return resp.data
 }
 
-// Пример: сохранить приватные настройки + isActive
+// SavePrivacy
+interface SavePrivacyDto {
+	userName: string
+	canCloseWork: boolean
+	canSendCloseRequest: boolean
+	canAccessSettings: boolean
+	isActive: boolean
+}
 export async function savePrivacySettings(
 	userName: string,
 	privacy: PrivacySettings,
 	isActive: boolean
 ): Promise<{ success: boolean; message?: string }> {
-	const resp = await settingsClient.post('/api/Settings/SavePrivacySettings', {
+	const dto: SavePrivacyDto = {
 		userName,
-		...privacy,
+		canCloseWork: privacy.canCloseWork,
+		canSendCloseRequest: privacy.canSendCloseRequest,
+		canAccessSettings: privacy.canAccessSettings,
 		isActive,
-	})
+	}
+	const resp = await settingsClient.post(
+		'/api/Settings/SavePrivacySettings',
+		dto
+	)
 	return resp.data
 }
 
-// Пример: сохранить список подразделений
+// SaveSubdivisions
+interface SaveSubdivisionsDto {
+	userName: string
+	subdivisions: number[]
+}
 export async function saveSubdivisions(
 	userName: string,
-	subdivisions: number[]
+	subdivisionIds: number[]
 ): Promise<{ success: boolean; message?: string }> {
 	const resp = await settingsClient.post('/api/Settings/SaveSubdivisions', {
 		userName,
-		subdivisions,
-	})
+		subdivisions: subdivisionIds,
+	} as SaveSubdivisionsDto)
 	return resp.data
 }
 
-// Пример: сменить пароль
+// Смена пароля
+interface ChangePasswordDto {
+	userName: string
+	newPassword: string
+}
 export async function changeUserPassword(
 	userName: string,
 	newPassword: string
@@ -87,12 +100,12 @@ export async function changeUserPassword(
 	const resp = await settingsClient.post('/api/Settings/ChangeUserPassword', {
 		userName,
 		newPassword,
-	})
+	} as ChangePasswordDto)
 	return resp.data
 }
 
-// Пример: зарегистрировать нового пользователя
-interface RegisterUserRequest {
+// Регистрация
+interface RegisterUserDto {
 	fullName: string
 	smallName: string
 	idDivision?: number
@@ -101,10 +114,9 @@ interface RegisterUserRequest {
 	canSendCloseRequest: boolean
 	canAccessSettings: boolean
 }
-
 export async function registerUser(
-	data: RegisterUserRequest
-): Promise<{ success: boolean; message?: string }> {
+	data: RegisterUserDto
+): Promise<{ success: boolean; message?: string; newUserId?: number }> {
 	const resp = await settingsClient.post('/api/Settings/RegisterUser', data)
 	return resp.data
 }

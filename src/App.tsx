@@ -1,4 +1,3 @@
-// src/App.tsx
 import React from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout/Layout'
@@ -14,13 +13,13 @@ function App() {
 	return (
 		<BrowserRouter>
 			<Layout>
-				<Routes>
-					<Route path='/login' element={<LoginPage />} />
-					<Route path='/' element={<HomePage />} />
-					<Route path='/my-requests' element={<MyRequestsPage />} />
-					<Route path='/settings' element={<SettingsPage />} />
+			<Routes>
+				<Route path='/login' element={<LoginPage />} />
+				<Route path='/' element={<HomePage />} />
+				<Route path='/my-requests' element={<MyRequestsPage />} />
+				<Route path='/settings' element={<SettingsPage />} />
 					<Route path='*' element={<NotFoundPage />} />
-				</Routes>
+			</Routes>
 			</Layout>
 		</BrowserRouter>
 	)

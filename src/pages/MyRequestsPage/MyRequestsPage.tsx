@@ -1,101 +1,89 @@
-// src/pages/MyRequestsPage/MyRequestsPage.tsx
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
 	getMyRequests,
-	MyRequestDto,
 	setRequestStatus,
+	MyRequestDto,
 } from '../../api/myRequestsApi'
 
 const MyRequestsPage: React.FC = () => {
 	const navigate = useNavigate()
 	const [requests, setRequests] = useState<MyRequestDto[]>([])
-	const [hasCloseWorkAccess, setHasCloseWorkAccess] = useState<boolean>(true) // или грузить с бэка
+	const [error, setError] = useState<string>('')
 
 	useEffect(() => {
-		// Проверяем токен
 		const token = localStorage.getItem('jwtToken')
 		if (!token) {
 			navigate('/login')
 			return
 		}
-
-		// Допустим, мы грузим признак "можем ли мы закрывать работы" - тут заглушка
-		// setHasCloseWorkAccess(...) -- либо сразу true/false
-
-		// Загружаем заявки
 		getMyRequests()
 			.then(data => setRequests(data))
-			.catch(err => console.error(err))
+			.catch(err => {
+				console.error(err)
+				// если 403
+				setError(err.response?.data || 'Ошибка при загрузке заявок')
+			})
 	}, [navigate])
 
 	const handleSetStatus = async (
-		requestId: number,
-		docNumber: string,
-		newStatus: 'Accepted' | 'Declined',
-		requestType?: string,
-		proposedDate?: string
+		req: MyRequestDto,
+		newStatus: 'Accepted' | 'Declined'
 	) => {
-		const confirmMsg = `Вы действительно хотите ${
-			newStatus === 'Accepted' ? 'принять' : 'отклонить'
-		} заявку [${docNumber}]? Тип: ${requestType || ''}, на дату: ${
-			proposedDate || ''
-		}`
-		if (!window.confirm(confirmMsg)) {
+		if (
+			!window.confirm(
+				`Вы действительно хотите ${
+					newStatus === 'Accepted' ? 'принять' : 'отклонить'
+				} заявку?`
+			)
+		) {
 			return
 		}
-
 		try {
 			const resp = await setRequestStatus(
-				requestId,
-				docNumber,
-				newStatus,
-				requestType,
-				proposedDate
+				req.id,
+				req.workDocumentNumber,
+				newStatus
 			)
 			if (resp.success) {
-				alert('Статус обновлён!')
-				// Перезагружаем
-				getMyRequests().then(data => setRequests(data))
+				alert('Статус обновлён')
+				// Обновляем список
+				const updated = await getMyRequests()
+				setRequests(updated)
 			} else {
-				alert('Ошибка: ' + (resp.message || 'Неизвестная ошибка'))
+				alert(`Ошибка: ${resp.message || ''}`)
 			}
-		} catch (e: any) {
-			console.error(e)
-			alert('Ошибка запроса')
+		} catch (err: any) {
+			console.error(err)
+			alert('Ошибка при отправке запроса')
 		}
 	}
 
-	// Если нет права
-	if (!hasCloseWorkAccess) {
+	if (error) {
 		return (
-			<div className='container my-3'>
+			<div className='container mt-3'>
 				<h4>Мои входящие заявки</h4>
-				<div className='alert alert-danger'>
-					У вас нет права на закрытие работ. Страница недоступна.
-				</div>
+				<div className='alert alert-danger'>{error}</div>
 			</div>
 		)
 	}
 
 	return (
-		<div className='container-fluid mt-3'>
-			<div className='d-flex justify-content-between align-items-center mb-3'>
-				<h4 className='mb-0'>Мои входящие заявки</h4>
-				{/* Кнопка "Назад" */}
+		<div className='container mt-3'>
+			<div className='d-flex justify-content-between mb-3'>
+				<h4>Мои входящие заявки</h4>
 				<button className='btn btn-secondary' onClick={() => navigate('/')}>
-					Назад на главную
+					На главную
 				</button>
 			</div>
-			<hr />
 
-			{requests && requests.length > 0 ? (
+			{requests.length > 0 ? (
 				<div
 					className='table-responsive'
-					style={{ overflowY: 'auto', maxHeight: '75vh' }}
+					style={{ maxHeight: '70vh', overflowY: 'auto' }}
 				>
-					<table className='table table-bordered table-hover w-100'>
-						<thead className='sticky-header'>
+					<table className='table table-bordered table-hover'>
+						<thead>
 							<tr>
 								<th>Документ</th>
 								<th>Работа</th>
@@ -106,7 +94,7 @@ const MyRequestsPage: React.FC = () => {
 								<th>Корр1</th>
 								<th>Корр2</th>
 								<th>Корр3</th>
-								<th>Заявка</th>
+								<th>Тип заявки</th>
 								<th>На дату</th>
 								<th>Отправитель</th>
 								<th>Заметка</th>
@@ -114,56 +102,37 @@ const MyRequestsPage: React.FC = () => {
 							</tr>
 						</thead>
 						<tbody>
-							{requests.map(req => {
-								// пример подсветки
+							{requests.map(r => {
 								const rowClass =
-									req.requestType === 'факт' ? 'table-info' : 'table-warning'
+									r.requestType === 'факт' ? 'table-info' : 'table-warning'
 								return (
-									<tr key={req.id} className={rowClass}>
-										<td>{req.documentName}</td>
-										<td>{req.workName}</td>
-										<td>{req.executor}</td>
-										<td>{req.controller}</td>
-										<td>{req.receiver}</td>
-										<td>{req.planDate || ''}</td>
-										<td>{req.korrect1 || ''}</td>
-										<td>{req.korrect2 || ''}</td>
-										<td>{req.korrect3 || ''}</td>
-										<td>{req.requestType}</td>
-										<td>{req.proposedDate || ''}</td>
-										<td>{req.sender}</td>
-										<td>{req.note}</td>
+									<tr key={r.id} className={rowClass}>
+										<td>{r.documentName}</td>
+										<td>{r.workName}</td>
+										<td>{r.executor}</td>
+										<td>{r.controller}</td>
+										<td>{r.receiver}</td>
+										<td>{r.planDate || ''}</td>
+										<td>{r.korrect1 || ''}</td>
+										<td>{r.korrect2 || ''}</td>
+										<td>{r.korrect3 || ''}</td>
+										<td>{r.requestType}</td>
+										<td>{r.proposedDate || ''}</td>
+										<td>{r.sender}</td>
+										<td>{r.note}</td>
 										<td>
-											<div className='d-flex flex-column gap-2 justify-content-center align-items-center'>
-												<button
-													className='btn btn-success'
-													onClick={() =>
-														handleSetStatus(
-															req.id,
-															req.workDocumentNumber,
-															'Accepted',
-															req.requestType,
-															req.proposedDate
-														)
-													}
-												>
-													Принять
-												</button>
-												<button
-													className='btn btn-danger'
-													onClick={() =>
-														handleSetStatus(
-															req.id,
-															req.workDocumentNumber,
-															'Declined',
-															req.requestType,
-															req.proposedDate
-														)
-													}
-												>
-													Отклонить
-												</button>
-											</div>
+											<button
+												className='btn btn-sm btn-success me-2'
+												onClick={() => handleSetStatus(r, 'Accepted')}
+											>
+												Принять
+											</button>
+											<button
+												className='btn btn-sm btn-danger'
+												onClick={() => handleSetStatus(r, 'Declined')}
+											>
+												Отклонить
+											</button>
 										</td>
 									</tr>
 								)

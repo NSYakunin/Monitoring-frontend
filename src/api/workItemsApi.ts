@@ -1,7 +1,5 @@
-// src/api/workItemsApi.ts
 import axios from 'axios'
 
-// Модель данных работы (WorkItem)
 export interface WorkItemDto {
 	documentNumber: string
 	documentName: string
@@ -16,7 +14,6 @@ export interface WorkItemDto {
 	factDate?: string
 }
 
-// Создаём общий instance axios с интерсептором токена
 const apiClient = axios.create({
 	baseURL: 'http://localhost:5100',
 })
@@ -29,7 +26,7 @@ apiClient.interceptors.request.use(config => {
 	return config
 })
 
-// Получить список работ с учётом фильтров
+// Запрос на список workItems c фильтрами
 export async function getFilteredWorkItems(
 	startDate?: string,
 	endDate?: string,
@@ -43,13 +40,13 @@ export async function getFilteredWorkItems(
 	return resp.data
 }
 
-// Получить список доступных подразделений
+// Список отделов, куда есть доступ
 export async function getAllowedDivisions(): Promise<number[]> {
 	const resp = await apiClient.get<number[]>('/api/WorkItems/AllowedDivisions')
 	return resp.data
 }
 
-// Получить список исполнителей (executor) для подразделения
+// Исполнители
 export async function getExecutors(divisionId: number): Promise<string[]> {
 	const resp = await apiClient.get<string[]>('/api/WorkItems/Executors', {
 		params: { divisionId },
@@ -57,10 +54,15 @@ export async function getExecutors(divisionId: number): Promise<string[]> {
 	return resp.data
 }
 
-// Получить список принимающих (approver) для подразделения
+// Принимающие
 export async function getApprovers(divisionId: number): Promise<string[]> {
 	const resp = await apiClient.get<string[]>('/api/WorkItems/Approvers', {
 		params: { divisionId },
 	})
 	return resp.data
+}
+
+// "Обновить кэш" (по аналогии)
+export async function clearWorkItemsCache(divisionId: number): Promise<void> {
+	await apiClient.post(`/api/WorkItems/ClearCache?divisionId=${divisionId}`)
 }
