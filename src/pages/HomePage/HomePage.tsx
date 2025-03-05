@@ -1,3 +1,4 @@
+// src/pages/HomePage/HomePage.tsx
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -9,7 +10,7 @@ import {
 } from '../../api/workItemsApi'
 import './HomePage.css'
 
-// Интерфейс для "фильтров"
+// Интерфейс для фильтров
 interface FilterState {
 	selectedDivision: number
 	startDate: string
@@ -22,31 +23,30 @@ interface FilterState {
 const HomePage: React.FC = () => {
 	const navigate = useNavigate()
 
-	// Список всех подразделений, доступных пользователю
+	// Список доступных подразделений
 	const [allowedDivisions, setAllowedDivisions] = useState<number[]>([])
 
-	// Список исполнителей / принимающих (динамически подгружаются при смене division)
+	// Список исполнителей / принимающих
 	const [executorsList, setExecutorsList] = useState<string[]>([])
 	const [approversList, setApproversList] = useState<string[]>([])
 
-	// Список работ (WorkItems)
+	// Список работ
 	const [workItems, setWorkItems] = useState<WorkItemDto[]>([])
 
 	// Фильтры
 	const [filters, setFilters] = useState<FilterState>({
-		selectedDivision: 0, // по умолчанию 0, потом подставим
-		startDate: '', // если пусто, на бэке будет 2014-01-01
-		endDate: '', // если пусто, на бэке конец месяца
+		selectedDivision: 0,
+		startDate: '',
+		endDate: '',
 		executor: '',
 		approver: '',
 		search: '',
 	})
 
-	// При монтировании компонента проверяем токен
+	// Проверяем токен при монтировании
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
 		if (!token) {
-			// Если нет токена – перенаправляем на логин
 			navigate('/login')
 			return
 		}
@@ -56,49 +56,48 @@ const HomePage: React.FC = () => {
 			.then(divs => {
 				setAllowedDivisions(divs)
 
-				// Смотрим, был ли divisionId в localStorage:
+				// Пытаемся взять divisionId из localStorage
 				const storedDivId = localStorage.getItem('divisionId')
 				let divIdFromStorage = 0
 				if (storedDivId) {
 					divIdFromStorage = parseInt(storedDivId, 10)
 				}
 
-				// Если divIdFromStorage присутствует в списке allowedDivisions –
-				// берём его, иначе берём первый из списка.
+				// Если он есть в списке – используем, иначе первый доступный
 				let defaultDiv = divs[0] || 0
 				if (divs.includes(divIdFromStorage)) {
 					defaultDiv = divIdFromStorage
 				}
 
-				// Устанавливаем selectedDivision
-				setFilters(prev => ({
-					...prev,
-					selectedDivision: defaultDiv,
-				}))
+				setFilters(prev => ({ ...prev, selectedDivision: defaultDiv }))
 			})
 			.catch(err => console.error(err))
 	}, [navigate])
 
-	// Когда меняется selectedDivision – подгружаем списки исполнителей и принимающих
+	// При смене selectedDivision – загружаем списки исполнителей/принимающих
 	useEffect(() => {
 		if (!filters.selectedDivision) return
 
-		// Загружаем исполнителей
 		getExecutors(filters.selectedDivision)
 			.then(execs => setExecutorsList(execs))
 			.catch(err => console.error(err))
 
-		// Загружаем принимающих
 		getApprovers(filters.selectedDivision)
 			.then(apprs => setApproversList(apprs))
 			.catch(err => console.error(err))
-
-		// И сразу грузим список работ (с учётом наших startDate, endDate и т.д.)
-		loadWorkItems()
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [filters.selectedDivision])
 
-	// Функция для загрузки workItems
+	// При любом изменении filters (включая selectedDivision), подгружаем workItems
+	useEffect(() => {
+		// Если еще не выбрано подразделение, не грузим
+		if (!filters.selectedDivision) return
+
+		loadWorkItems()
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [filters])
+
+	// Функция для загрузки
 	const loadWorkItems = () => {
 		getFilteredWorkItems(
 			filters.startDate,
@@ -113,11 +112,11 @@ const HomePage: React.FC = () => {
 			})
 			.catch(err => {
 				console.error('Ошибка при загрузке:', err)
-				// Если 401 или 403, можно делать navigate('/login')
+				// Если 401/403 – можно отправить на логин
 			})
 	}
 
-	// Обработка изменений полей фильтра
+	// Обработка изменения любого поля
 	const handleChange = (
 		e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
 	) => {
@@ -128,29 +127,34 @@ const HomePage: React.FC = () => {
 		}))
 	}
 
-	// Кнопка "Применить"
-	const handleSearchClick = () => {
-		loadWorkItems()
-	}
-
-	// Кнопка "Выход" – чистим localStorage и возвращаемся на /login
+	// Выход
 	const handleLogout = () => {
 		localStorage.removeItem('jwtToken')
 		localStorage.removeItem('userName')
 		localStorage.removeItem('divisionId')
-		// Можно сразу всё почистить:
-		// localStorage.clear()
-
 		navigate('/login')
+	}
+
+	// Переход на страницу "Мои заявки"
+	const handleMyRequests = () => {
+		navigate('/my-requests')
 	}
 
 	return (
 		<div>
 			<div className='d-flex justify-content-between align-items-center mb-3'>
 				<h3>Главная страница</h3>
-				<button className='btn btn-outline-danger' onClick={handleLogout}>
-					Выход
-				</button>
+				<div>
+					<button
+						className='btn btn-outline-primary me-2'
+						onClick={handleMyRequests}
+					>
+						Мои заявки
+					</button>
+					<button className='btn btn-outline-danger' onClick={handleLogout}>
+						Выход
+					</button>
+				</div>
 			</div>
 
 			{/* Блок фильтров */}
@@ -262,16 +266,6 @@ const HomePage: React.FC = () => {
 							className='form-control'
 						/>
 					</div>
-
-					<div>
-						<button
-							type='button'
-							className='btn btn-primary'
-							onClick={handleSearchClick}
-						>
-							Применить
-						</button>
-					</div>
 				</form>
 			</div>
 
@@ -299,36 +293,34 @@ const HomePage: React.FC = () => {
 					</thead>
 					<tbody>
 						{workItems.map((item, index) => {
-							// При желании можно навесить условную подсветку
-							const highlightClass = ''
-
+							// при желании можно добавить логику подсветки строк
 							return (
-								<tr key={index} className={highlightClass}>
-								<td>{index + 1}</td>
-								<td>{item.documentName}</td>
-								<td>{item.workName}</td>
-								<td>
+								<tr key={index}>
+									<td>{index + 1}</td>
+									<td>{item.documentName}</td>
+									<td>{item.workName}</td>
+									<td>
 										{item.executor?.split(',').map((ex, i) => (
-										<div key={i}>{ex.trim()}</div>
-									))}
-								</td>
-								<td>{item.controller}</td>
-								<td>{item.approver}</td>
-								<td>{item.planDate}</td>
-								<td>{item.korrect1}</td>
-								<td>{item.korrect2}</td>
-								<td>{item.korrect3}</td>
-								<td>
-									<input type='checkbox' />
-									{/* Кнопка "заявка" (пока заглушка) */}
-									<button
-										type='button'
-										className='btn btn-sm btn-outline-secondary ms-2'
-									>
-										📝
-									</button>
-								</td>
-							</tr>
+											<div key={i}>{ex.trim()}</div>
+										))}
+									</td>
+									<td>{item.controller}</td>
+									<td>{item.approver}</td>
+									<td>{item.planDate}</td>
+									<td>{item.korrect1}</td>
+									<td>{item.korrect2}</td>
+									<td>{item.korrect3}</td>
+									<td>
+										<input type='checkbox' />
+										{/* Кнопка "заявка" (заглушка) */}
+										<button
+											type='button'
+											className='btn btn-sm btn-outline-secondary ms-2'
+										>
+											📝
+										</button>
+									</td>
+								</tr>
 							)
 						})}
 					</tbody>

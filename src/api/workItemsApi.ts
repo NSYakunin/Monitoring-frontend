@@ -1,5 +1,7 @@
+// src/api/workItemsApi.ts
 import axios from 'axios'
 
+// Модель данных работы (WorkItem)
 export interface WorkItemDto {
 	documentNumber: string
 	documentName: string
@@ -14,15 +16,14 @@ export interface WorkItemDto {
 	factDate?: string
 }
 
-// Создаём общий instance axios
+// Создаём общий instance axios с интерсептором токена
 const apiClient = axios.create({
 	baseURL: 'http://localhost:5100',
 })
 
-// Интерцептор для добавления Bearer-токена, если он есть в localStorage
 apiClient.interceptors.request.use(config => {
 	const token = localStorage.getItem('jwtToken')
-	if (token) {
+	if (token && config.headers) {
 		config.headers.Authorization = `Bearer ${token}`
 	}
 	return config
@@ -36,26 +37,19 @@ export async function getFilteredWorkItems(
 	approver?: string,
 	search?: string
 ): Promise<WorkItemDto[]> {
-	// Здесь делаем GET /api/WorkItems + query-параметры
 	const resp = await apiClient.get<WorkItemDto[]>('/api/WorkItems', {
-		params: {
-			startDate,
-			endDate,
-			executor,
-			approver,
-			search,
-		},
+		params: { startDate, endDate, executor, approver, search },
 	})
 	return resp.data
 }
 
-// Получить список доступных подразделений (AllowedDivisions)
+// Получить список доступных подразделений
 export async function getAllowedDivisions(): Promise<number[]> {
 	const resp = await apiClient.get<number[]>('/api/WorkItems/AllowedDivisions')
 	return resp.data
 }
 
-// Получить список исполнителей
+// Получить список исполнителей (executor) для подразделения
 export async function getExecutors(divisionId: number): Promise<string[]> {
 	const resp = await apiClient.get<string[]>('/api/WorkItems/Executors', {
 		params: { divisionId },
@@ -63,7 +57,7 @@ export async function getExecutors(divisionId: number): Promise<string[]> {
 	return resp.data
 }
 
-// Получить список принимающих
+// Получить список принимающих (approver) для подразделения
 export async function getApprovers(divisionId: number): Promise<string[]> {
 	const resp = await apiClient.get<string[]>('/api/WorkItems/Approvers', {
 		params: { divisionId },

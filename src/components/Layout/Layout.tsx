@@ -1,16 +1,14 @@
 // src/components/Layout/Layout.tsx
-
 import React from 'react'
 import { Container, Navbar, Nav } from 'react-bootstrap'
 import { Link, useLocation } from 'react-router-dom'
 import './Layout.css'
 
 interface LayoutProps {
-	children: React.ReactNode // всё, что вложено между <Layout> ... </Layout>
+	children: React.ReactNode
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
-	// Определим, находимся ли мы на странице /settings (пример логики)
 	const location = useLocation()
 	const isSettingsPage = location.pathname.includes('/settings')
 
@@ -43,12 +41,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 				</Container>
 			</Navbar>
 
-			{/* Основная часть страницы */}
+			{/* Основная часть */}
 			<main className='container-fluid flex-grow-1 content py-4'>
 				{children}
 			</main>
 
-			{/* Подвал (footer) */}
+			{/* Подвал */}
 			<footer className='main-footer mt-auto py-3'>
 				<div className='container text-center'>
 					<span className='footer-text'>

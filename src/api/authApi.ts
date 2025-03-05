@@ -1,8 +1,9 @@
+// src/api/authApi.ts
 import axios from 'axios'
 
-// Создаём экземпляр axios
+// Создаём экземпляр axios для auth-запросов
 const authClient = axios.create({
-	baseURL: 'http://localhost:5100', // сюда поставить URL вашего ASP.NET
+	baseURL: 'http://localhost:5100', // Поменяйте на реальный URL бэкенда
 })
 
 // Интерфейсы

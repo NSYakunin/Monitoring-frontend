@@ -1,3 +1,4 @@
+// src/pages/LoginPage/LoginPage.tsx
 import React, { useEffect, useState } from 'react'
 import { filterUsers, login } from '../../api/authApi'
 import { useNavigate } from 'react-router-dom'
@@ -11,7 +12,7 @@ const LoginPage: React.FC = () => {
 	const [password, setPassword] = useState('')
 	const [errorMessage, setErrorMessage] = useState('')
 
-	// Подгрузка списка пользователей (фильтрация) при вводе searchQuery
+	// Подгружаем список пользователей при изменении searchQuery
 	useEffect(() => {
 		filterUsers(searchQuery)
 			.then(data => setUsers(data))
@@ -35,7 +36,6 @@ const LoginPage: React.FC = () => {
 				localStorage.setItem('divisionId', res.divisionId.toString())
 			}
 
-			// Переход на главную (HomePage)
 			navigate('/')
 		} catch (err: any) {
 			console.error(err)
