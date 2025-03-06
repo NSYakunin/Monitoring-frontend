@@ -1,0 +1,60 @@
+.settings-page {
+  opacity: 0;
+  animation: fadeInUp 0.5s ease forwards;
+}
+
+.custom-card {
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  transition: transform 0.3s;
+}
+
+.custom-card:hover {
+  transform: scale(1.005);
+}
+
+.custom-card-header {
+  background-color: #495057;
+  color: #fff;
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  padding: 1rem;
+}
+
+.custom-card-body {
+  padding: 1rem;
+  background-color: #ffffff;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+.table-custom {
+  background-color: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.table-custom thead {
+  background: #e9ecef;
+}
+
+.multi-col-select {
+  /* пример, если вам нужно в 2 колонки; 
+     но имейте в виду, что селект может обрезаться браузером */
+}
+
+.subdivisions-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr); /* можно 3, если нужно */
+  gap: 0.5rem;
+}
+
+.form-check-input {
+  transform: scale(1.1);
+  margin-right: 4px;
+}
+
+.form-check-label {
+  cursor: pointer;
+}

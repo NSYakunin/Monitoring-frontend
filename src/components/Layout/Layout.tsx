@@ -1,4 +1,3 @@
-// src/components/Layout/Layout.tsx
 import React from 'react'
 import { Container, Navbar, Nav } from 'react-bootstrap'
 import { Link, useLocation } from 'react-router-dom'
@@ -23,10 +22,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 						<img
 							src='/logom.png'
 							alt='Мониторинг'
-							style={{ height: '40px', marginRight: '8px' }}
+							style={{ height: '50px', marginRight: '8px' }}
 						/>
 						Мониторинг
 					</Navbar.Brand>
+
 					{/* Блок справа */}
 					<Nav className='ms-auto'>
 						{isSettingsPage ? (
@@ -43,7 +43,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 			</Navbar>
 
 			{/* Основная часть */}
-			<main className='container-fluid flex-grow-1 content py-4'>
+			<main className='container-fluid flex-grow-1 content py-4 layout-main'>
 				{children}
 			</main>
 

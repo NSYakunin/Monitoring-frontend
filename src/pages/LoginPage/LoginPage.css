@@ -1,0 +1,21 @@
+.login-container {
+  max-width: 400px;
+  margin: 40px auto;
+  animation: fadeInUp 0.5s ease forwards;
+}
+
+.login-title {
+  font-weight: 600;
+  color: #34495e;
+}
+
+.login-form {
+  border-radius: 12px;
+  background: #fff;
+  border: none;
+  transition: transform 0.3s;
+}
+
+.login-form:hover {
+  transform: scale(1.005);
+}

@@ -1,0 +1,72 @@
+.my-requests-page {
+  animation: fadeInUp 0.5s ease forwards;
+  opacity: 0;
+}
+
+.section-title {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+/* Липкий заголовок */
+.sticky-header th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #2c3e50;
+  color: #fff;
+  text-align: center;
+  padding: 8px;
+  border-bottom: 2px solid #1a252f;
+  white-space: nowrap;
+}
+
+.table-info {
+  background-color: rgba(23, 162, 184, 0.15) !important;
+}
+
+.table-warning {
+  background-color: rgba(255, 193, 7, 0.15) !important;
+}
+
+.btn-approve {
+  background: linear-gradient(145deg, #28a745, #218838);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 5px;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.15);
+  transition: all 0.3s ease;
+}
+
+.btn-approve:hover {
+  background: linear-gradient(145deg, #218838, #28a745);
+  box-shadow: 0 5px 10px rgba(0,0,0,0.2);
+  transform: translateY(-1px);
+}
+
+.btn-approve:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.btn-decline {
+  background: linear-gradient(145deg, #dc3545, #c82333);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 5px;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.15);
+  transition: all 0.3s ease;
+}
+
+.btn-decline:hover {
+  background: linear-gradient(145deg, #c82333, #dc3545);
+  box-shadow: 0 5px 10px rgba(0,0,0,0.2);
+  transform: translateY(-1px);
+}
+
+.btn-decline:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}

@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
 	getAllowedDivisions,
+	getExecutors,
 	getApprovers,
 	getDivisionName,
-	getExecutors,
 	getFilteredWorkItems,
 	clearWorkItemsCache,
 	WorkItemDto,
@@ -14,9 +14,11 @@ import {
 	NotificationDto,
 } from '../../api/notificationsApi'
 import { ReactSortable } from 'react-sortablejs'
-import './HomePage.css'
 import axios from 'axios'
 
+import './HomePage.css'
+
+// Локальный интерфейс для строки работы — добавляем поле id (для DnD) и selected
 interface WorkItemRow extends WorkItemDto {
 	id: string
 	selected: boolean
@@ -62,7 +64,7 @@ const HomePage: React.FC = () => {
 		search: '',
 	})
 
-	// После монтирования проверяем токен, грузим отделы
+	// При загрузке проверяем токен и грузим отделы
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
 		if (!token) {
@@ -72,11 +74,8 @@ const HomePage: React.FC = () => {
 
 		getAllowedDivisions()
 			.then(async divIds => {
-				if (divIds.length === 0) {
-					// Нет доступных отделов
-					return
-				}
-				// Для каждого divId получаем "название"
+				if (divIds.length === 0) return
+				// Загружаем названия
 				const divisionsWithNames: DivisionItem[] = []
 				for (let d of divIds) {
 					const name = await getDivisionName(d)
@@ -90,7 +89,7 @@ const HomePage: React.FC = () => {
 				if (storedDivId) {
 					divIdFromStorage = parseInt(storedDivId, 10)
 				}
-				// Если он есть в списке – берём, иначе первый
+				// Если он есть в списке – берем, иначе берем первый
 				let defaultDiv = divisionsWithNames[0].id
 				if (divisionsWithNames.some(x => x.id === divIdFromStorage)) {
 					defaultDiv = divIdFromStorage
@@ -100,7 +99,7 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error(err))
 	}, [navigate])
 
-	// При смене selectedDivision -> грузим исполнителей, принимающих
+	// При смене selectedDivision -> грузим исполнителей/принимающих
 	useEffect(() => {
 		if (!filters.selectedDivision) return
 
@@ -113,7 +112,7 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error(err))
 	}, [filters.selectedDivision])
 
-	// При любом изменении filters -> подгружаем workItems и уведомления
+	// При любом изменении filters -> подгружаем workItems + уведомления
 	useEffect(() => {
 		if (!filters.selectedDivision) return
 
@@ -122,17 +121,14 @@ const HomePage: React.FC = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [filters])
 
-	// Загрузка уведомлений
 	const loadNotifications = (divisionId: number) => {
 		getActiveNotifications(divisionId)
 			.then(data => {
-				// Можно как-то дополнительно сортировать/группировать
 				setNotifications(data)
 			})
-			.catch(err => console.error('Ошибка при загрузке уведомлений:', err))
+			.catch(err => console.error('Ошибка уведомлений:', err))
 	}
 
-	// Загрузка списка работ
 	const loadWorkItems = () => {
 		getFilteredWorkItems(
 			filters.startDate,
@@ -143,8 +139,6 @@ const HomePage: React.FC = () => {
 			filters.selectedDivision
 		)
 			.then(data => {
-				// Превращаем WorkItemDto -> WorkItemRow
-				// Генерируем id для dnd (например, docNumber или уникальный Guid)
 				const rows: WorkItemRow[] = data.map((w, index) => {
 					return {
 						...w,
@@ -156,11 +150,10 @@ const HomePage: React.FC = () => {
 			})
 			.catch(err => {
 				console.error('Ошибка при загрузке:', err)
-				// Если 401/403 – можно сделать редирект на логин
 			})
 	}
 
-	// Изменение любого поля фильтра
+	// Обработчики
 	const handleChange = (
 		e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
 	) => {
@@ -168,14 +161,12 @@ const HomePage: React.FC = () => {
 		setFilters(prev => ({ ...prev, [name]: value }))
 	}
 
-	// Изменение выбора подразделения
 	const handleDivisionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
 		const newDivId = Number(e.target.value)
 		setFilters(prev => ({ ...prev, selectedDivision: newDivId }))
 		localStorage.setItem('divisionId', String(newDivId))
 	}
 
-	// Выход
 	const handleLogout = () => {
 		localStorage.removeItem('jwtToken')
 		localStorage.removeItem('userName')
@@ -183,53 +174,39 @@ const HomePage: React.FC = () => {
 		navigate('/login')
 	}
 
-	// Кнопка "Мои заявки"
 	const handleMyRequests = () => {
 		navigate('/my-requests')
 	}
 
-	// Кнопка "Обновить кэш"
 	const handleRefreshCache = () => {
 		clearWorkItemsCache(filters.selectedDivision)
-			.then(() => {
-				// Можно дать таймер/уведомление
-				loadWorkItems()
-			})
+			.then(() => loadWorkItems())
 			.catch(err => console.error(err))
 	}
 
-	// Переключить чекбокс конкретной строки
+	// Чекбокс в строке
 	const toggleRowSelection = (rowId: string) => {
-		setWorkItems(prevItems =>
-			prevItems.map(row =>
+		setWorkItems(prev =>
+			prev.map(row =>
 				row.id === rowId ? { ...row, selected: !row.selected } : row
 			)
 		)
 	}
 
-	// "Выделить/Снять все"
+	// "Выделить/снять все"
 	const toggleSelectAll = () => {
 		const anyUnchecked = workItems.some(row => !row.selected)
-		setWorkItems(prev =>
-			prev.map(row => {
-				return { ...row, selected: anyUnchecked }
-			})
-		)
+		setWorkItems(prev => prev.map(row => ({ ...row, selected: anyUnchecked })))
 	}
 
-	// По клику на строку тоже выделяем
+	// Клик по строке (не на кнопке)
 	const handleRowClick = (rowId: string, e: React.MouseEvent) => {
-		// Не переключаем, если клик был по кнопкам/чекбоксам
 		const tag = (e.target as HTMLElement).tagName.toLowerCase()
-		if (tag === 'button' || tag === 'input') {
-			return
-		}
+		if (tag === 'button' || tag === 'input') return
 		toggleRowSelection(rowId)
 	}
 
-	// При перетаскивании массива (drag and drop)
-	// ReactSortable нам отдаёт новый массив workItems, только в другом порядке.
-	// Мы сохраняем его в state. Поле 'selected' и id при этом сохраняется.
+	// ReactSortable callback при перетаскивании
 	const handleSort = (newState: WorkItemRow[]) => {
 		setWorkItems(newState)
 	}
@@ -241,19 +218,21 @@ const HomePage: React.FC = () => {
 		const selected = workItems
 			.filter(r => r.selected)
 			.map(r => r.documentNumber)
+
 		let finalSelection = selected
 
 		// Если ничего не выбрано, берем все
 		if (selected.length === 0) {
+			// Если не выбрано, берём все
 			finalSelection = workItems.map(r => r.documentNumber)
 		}
 
 		// Сформируем тело для POST
 		const body = {
-			format: format,
+			format,
 			selectedItems: finalSelection,
-			startDate: filters.startDate ? filters.startDate : null,
-			endDate: filters.endDate ? filters.endDate : null,
+			startDate: filters.startDate || null,
+			endDate: filters.endDate || null,
 			executor: filters.executor,
 			approver: filters.approver,
 			search: filters.search,
@@ -262,7 +241,7 @@ const HomePage: React.FC = () => {
 
 		axios
 			.post('/api/WorkItems/Export', body, {
-				responseType: 'blob', // чтобы получить файл
+				responseType: 'blob',
 			})
 			.then(res => {
 				// Скачиваем
@@ -279,303 +258,288 @@ const HomePage: React.FC = () => {
 				link.click()
 				URL.revokeObjectURL(url)
 			})
-			.catch(err => {
-				console.error('Ошибка при экспорте:', err)
-			})
+			.catch(err => console.error('Ошибка при экспорте:', err))
 	}
 
-	  return (
-			<div className='home-container'>
-				<div className='d-flex justify-content-between align-items-center mb-4'>
-					<h3 className='page-title'>Главная страница</h3>
-					<div className='header-buttons'>
-						<button className='btn btn-primary me-2' onClick={handleMyRequests}>
-							<i className='bi bi-file-earmark-text me-2'></i>Мои заявки
-						</button>
-						<button className='btn btn-danger' onClick={handleLogout}>
-							<i className='bi bi-box-arrow-right me-2'></i>Выход
-						</button>
-					</div>
-				</div>
-
-				{/* Блок фильтров */}
-				<div className='mb-4 filters-container'>
-					<form className='d-flex flex-wrap align-items-end gap-3'>
-						<div className='filter-block'>
-							<label htmlFor='startDate' className='form-label'>
-								C даты:
-							</label>
-							<input
-								type='date'
-								id='startDate'
-								name='startDate'
-								value={filters.startDate}
-								onChange={handleChange}
-								className='form-control'
-							/>
-						</div>
-
-						<div className='filter-block'>
-							<label htmlFor='endDate' className='form-label'>
-								По дату:
-							</label>
-							<input
-								type='date'
-								id='endDate'
-								name='endDate'
-								value={filters.endDate}
-								onChange={handleChange}
-								className='form-control'
-							/>
-						</div>
-
-						<div className='filter-block'>
-							<label htmlFor='selectedDivision' className='form-label'>
-								Подразделение:
-							</label>
-							<select
-								id='selectedDivision'
-								name='selectedDivision'
-								value={String(filters.selectedDivision)}
-								onChange={handleDivisionChange}
-								className='form-select'
-							>
-								{allowedDivisions.map(div => (
-									<option key={div.id} value={div.id}>
-										{div.name}
-									</option>
-								))}
-							</select>
-						</div>
-
-						<div className='filter-block'>
-							<label htmlFor='executor' className='form-label'>
-								Исполнитель:
-							</label>
-							<select
-								id='executor'
-								name='executor'
-								value={filters.executor}
-								onChange={handleChange}
-								className='form-select'
-							>
-								<option value=''>Все исполнители</option>
-								{executorsList.map(e => (
-									<option key={e} value={e}>
-										{e}
-									</option>
-								))}
-							</select>
-						</div>
-
-						<div className='filter-block'>
-							<label htmlFor='approver' className='form-label'>
-								Принимающий:
-							</label>
-							<select
-								id='approver'
-								name='approver'
-								value={filters.approver}
-								onChange={handleChange}
-								className='form-select'
-							>
-								<option value=''>Все принимающие</option>
-								{approversList.map(a => (
-									<option key={a} value={a}>
-										{a}
-									</option>
-								))}
-							</select>
-						</div>
-
-						<div className='filter-block'>
-							<label htmlFor='search' className='form-label'>
-								Поиск:
-							</label>
-							<input
-								type='text'
-								id='search'
-								name='search'
-								value={filters.search}
-								onChange={handleChange}
-								placeholder='Поиск...'
-								className='form-control'
-							/>
-						</div>
-
-						<div className='mt-2'>
-							<button
-								type='button'
-								className='btn btn-sm btn-outline-info'
-								onClick={handleRefreshCache}
-							>
-								Обновить
-							</button>
-						</div>
-					</form>
-				</div>
-
-				{/* Уведомления */}
-				<div className='mb-3'>
-					<h5>Уведомления</h5>
-					{notifications.length === 0 ? (
-						<div className='text-muted'>Нет активных уведомлений</div>
-					) : (
-						<div className='notifications-container'>
-							{notifications.map(note => (
-								<div key={note.id} className='notification-item'>
-									<div className='notif-title'>{note.title}</div>
-									<div className='notif-meta'>
-										{note.userName} |{' '}
-										{new Date(note.dateSetInSystem).toLocaleDateString()}
-									</div>
-								</div>
-							))}
-						</div>
-					)}
-				</div>
-
-				{/* Кнопки экспорта */}
-				<div className='d-flex justify-content-end mb-3 export-container'>
-					<div className='btn-group'>
-						<button
-							type='button'
-							className='btn btn-primary dropdown-toggle'
-							data-bs-toggle='dropdown'
-							aria-expanded='false'
-						>
-							Экспорт
-						</button>
-						<ul className='dropdown-menu'>
-							<li>
-								<button
-									className='dropdown-item'
-									onClick={() => handleExport('pdf')}
-								>
-									PDF
-								</button>
-							</li>
-							<li>
-								<button
-									className='dropdown-item'
-									onClick={() => handleExport('excel')}
-								>
-									Excel
-								</button>
-							</li>
-							<li>
-								<button
-									className='dropdown-item'
-									onClick={() => handleExport('word')}
-								>
-									Word
-								</button>
-							</li>
-						</ul>
-					</div>
-				</div>
-
-				{/* Таблица с работами (drag-and-drop через ReactSortable) */}
-				<div className='table-responsive'>
-					<table className='table table-bordered table-hover sticky-header-table'>
-						<thead>
-							<tr className='custom-header'>
-								<th style={{ width: '20px' }}>№</th>
-								<th>Документ</th>
-								<th>Работа</th>
-								<th>Исполнители</th>
-								<th>Контроллер</th>
-								<th>Принимающий</th>
-								<th>План</th>
-								<th>Корр1</th>
-								<th>Корр2</th>
-								<th>Корр3</th>
-								<th style={{ width: '120px' }}>
-									<div className='d-flex align-items-center justify-content-between'>
-										Выбрать
-										<button
-											className='btn btn-sm btn-outline-primary toggle-select-all'
-											onClick={toggleSelectAll}
-											title={
-												workItems.every(r => r.selected)
-													? 'Снять все'
-													: 'Выделить все'
-											}
-										>
-											{workItems.every(r => r.selected) ? '☑' : '☐'}
-										</button>
-									</div>
-								</th>
-							</tr>
-						</thead>
-
-						{/* 
-            В ReactSortable мы рендерим "tbody" как child, 
-            чтобы строки перетаскивались.
-          */}
-						<ReactSortable
-							tag='tbody'
-							list={workItems}
-							setList={handleSort}
-							animation={150} // анимация при перетаскивании
-							handle='.drag-handle' // элемент, за который цепляемся (можно сделать отдельный <span>)
-						>
-							{workItems.map((item, index) => {
-								return (
-									<tr
-										key={item.id}
-										className={item.selected ? 'table-selected-row' : ''}
-										onClick={e => handleRowClick(item.id, e)}
-									>
-										<td className='align-middle'>
-											<div className='d-flex align-items-center gap-2'>
-												<span>{index + 1}</span>
-												<span className='drag-handle'>
-													<i className='bi bi-grip-vertical'></i>
-												</span>
-											</div>
-										</td>
-										<td>{item.documentName}</td>
-										<td>{item.workName}</td>
-										<td>
-											{item.executor?.split(',').map((ex, i) => (
-												<div key={i}>{ex.trim()}</div>
-											))}
-										</td>
-										<td>{item.controller}</td>
-										<td>{item.approver}</td>
-										<td>{item.planDate}</td>
-										<td>{item.korrect1}</td>
-										<td>{item.korrect2}</td>
-										<td>{item.korrect3}</td>
-										<td>
-											<input
-												type='checkbox'
-												checked={item.selected}
-												onChange={() => toggleRowSelection(item.id)}
-											/>
-											<button
-												type='button'
-												className='btn btn-sm btn-outline-secondary ms-2'
-												onClick={e => {
-													e.stopPropagation()
-													// Тут, например, можно открыть "модалку заявки"
-													alert(
-														'Открыть/создать заявку для ' + item.documentNumber
-													)
-												}}
-											>
-												📝
-											</button>
-										</td>
-									</tr>
-								)
-							})}
-						</ReactSortable>
-					</table>
+	return (
+		<div className='home-container fade-in'>
+			<div className='d-flex justify-content-between align-items-center mb-4 page-header-block'>
+				<h3 className='page-title'>Главная страница</h3>
+				<div className='header-buttons'>
+					<button className='btn btn-info me-2' onClick={handleMyRequests}>
+						<i className='bi bi-file-earmark-text me-1'></i>Входящие заявки
+					</button>
+					<button className='btn btn-danger' onClick={handleLogout}>
+						<i className='bi bi-box-arrow-right me-1'></i>Выход
+					</button>
 				</div>
 			</div>
-		)
+
+			{/* Блок фильтров */}
+			<div className='filters-container mb-4'>
+				<form className='d-flex flex-wrap align-items-end gap-3'>
+					<div className='filter-block'>
+						<label htmlFor='startDate' className='form-label'>
+							C даты:
+						</label>
+						<input
+							type='date'
+							id='startDate'
+							name='startDate'
+							value={filters.startDate}
+							onChange={handleChange}
+							className='form-control'
+						/>
+					</div>
+					<div className='filter-block'>
+						<label htmlFor='endDate' className='form-label'>
+							По дату:
+						</label>
+						<input
+							type='date'
+							id='endDate'
+							name='endDate'
+							value={filters.endDate}
+							onChange={handleChange}
+							className='form-control'
+						/>
+					</div>
+					<div className='filter-block'>
+						<label htmlFor='selectedDivision' className='form-label'>
+							Подразделение:
+						</label>
+						<select
+							id='selectedDivision'
+							name='selectedDivision'
+							value={String(filters.selectedDivision)}
+							onChange={handleDivisionChange}
+							className='form-select'
+						>
+							{allowedDivisions.map(div => (
+								<option key={div.id} value={div.id}>
+									{div.name}
+								</option>
+							))}
+						</select>
+					</div>
+					<div className='filter-block'>
+						<label htmlFor='executor' className='form-label'>
+							Исполнитель:
+						</label>
+						<select
+							id='executor'
+							name='executor'
+							value={filters.executor}
+							onChange={handleChange}
+							className='form-select'
+						>
+							<option value=''>Все исполнители</option>
+							{executorsList.map(e => (
+								<option key={e} value={e}>
+									{e}
+								</option>
+							))}
+						</select>
+					</div>
+					<div className='filter-block'>
+						<label htmlFor='approver' className='form-label'>
+							Принимающий:
+						</label>
+						<select
+							id='approver'
+							name='approver'
+							value={filters.approver}
+							onChange={handleChange}
+							className='form-select'
+						>
+							<option value=''>Все принимающие</option>
+							{approversList.map(a => (
+								<option key={a} value={a}>
+									{a}
+								</option>
+							))}
+						</select>
+					</div>
+					<div className='filter-block'>
+						<label htmlFor='search' className='form-label'>
+							Поиск:
+						</label>
+						<input
+							type='text'
+							id='search'
+							name='search'
+							value={filters.search}
+							onChange={handleChange}
+							className='form-control'
+							placeholder='Поиск...'
+						/>
+					</div>
+
+					<div className='mt-2'>
+						<button
+							type='button'
+							className='btn btn-sm btn-outline-info refresh-btn'
+							onClick={handleRefreshCache}
+						>
+							Обновить
+						</button>
+					</div>
+				</form>
+			</div>
+
+			{/* Уведомления */}
+			<div className='mb-3 notifications-block'>
+				<h5 className='mb-2'>Уведомления</h5>
+				{notifications.length === 0 ? (
+					<div className='text-muted'>Нет активных уведомлений.</div>
+				) : (
+					<div className='notifications-container'>
+						{notifications.map(note => (
+							<div key={note.id} className='notification-item'>
+								<div className='notif-title'>{note.title}</div>
+								<div className='notif-meta'>
+									{note.userName} |{' '}
+									{new Date(note.dateSetInSystem).toLocaleDateString()}
+								</div>
+							</div>
+						))}
+					</div>
+				)}
+			</div>
+
+			{/* Кнопки экспорта */}
+			<div className='d-flex justify-content-end mb-3 export-container'>
+				<div className='btn-group dropup'>
+					<button
+						type='button'
+						className='btn btn-export dropdown-toggle'
+						data-bs-toggle='dropdown'
+						aria-expanded='false'
+					>
+						Сдаточный чек
+					</button>
+					<ul className='dropdown-menu'>
+						<li>
+							<button
+								className='dropdown-item'
+								onClick={() => handleExport('pdf')}
+							>
+								PDF
+							</button>
+						</li>
+						<li>
+							<button
+								className='dropdown-item'
+								onClick={() => handleExport('excel')}
+							>
+								Excel
+							</button>
+						</li>
+						<li>
+							<button
+								className='dropdown-item'
+								onClick={() => handleExport('word')}
+							>
+								Word
+							</button>
+						</li>
+					</ul>
+				</div>
+			</div>
+
+			{/* Таблица с работами (DnD) */}
+			<div className='table-responsive table-container'>
+				<table className='table table-bordered table-hover sticky-header-table'>
+					<thead>
+						<tr className='custom-header'>
+							<th style={{ width: '40px' }}>№</th>
+							<th>Документ</th>
+							<th>Работа</th>
+							<th>Исполнители</th>
+							<th>Контроллер</th>
+							<th>Принимающий</th>
+							<th>План</th>
+							<th>Корр1</th>
+							<th>Корр2</th>
+							<th>Корр3</th>
+							<th style={{ width: '150px' }}>
+								<div className='d-flex align-items-center justify-content-between'>
+									Выбор
+									<button
+										className='btn btn-sm btn-outline-primary toggle-select-all'
+										onClick={toggleSelectAll}
+										title={
+											workItems.every(r => r.selected)
+												? 'Снять все'
+												: 'Выделить все'
+										}
+									>
+										{workItems.every(r => r.selected) ? 'Снять' : 'Все'}
+									</button>
+								</div>
+							</th>
+						</tr>
+					</thead>
+					<ReactSortable
+						tag='tbody'
+						list={workItems}
+						setList={handleSort}
+							animation={150} // анимация при перетаскивании
+							handle='.drag-handle' // элемент, за который цепляемся (можно сделать отдельный <span>)
+					>
+						{workItems.map((item, index) => (
+							<tr
+								key={item.id}
+								className={item.selected ? 'table-selected-row' : ''}
+								onClick={e => handleRowClick(item.id, e)}
+							>
+								<td className='align-middle'>
+									<div className='d-flex align-items-center gap-2'>
+										<span>{index + 1}</span>
+										<span className='drag-handle' title='Перетащите строку'>
+											<i className='bi bi-grip-vertical'></i>
+										</span>
+									</div>
+								</td>
+								<td>{item.documentName}</td>
+								<td>{item.workName}</td>
+								<td>
+									{item.executor?.split(',').map((ex, i) => (
+										<div key={i}>{ex.trim()}</div>
+									))}
+								</td>
+								<td>{item.controller}</td>
+								<td>{item.approver}</td>
+								<td>{item.planDate}</td>
+								<td>{item.korrect1}</td>
+								<td>{item.korrect2}</td>
+								<td>{item.korrect3}</td>
+								<td>
+									<input
+										type='checkbox'
+										checked={item.selected}
+										onChange={() => toggleRowSelection(item.id)}
+									/>
+									<button
+										type='button'
+										className='btn btn-sm btn-outline-secondary ms-2'
+										onClick={e => {
+											e.stopPropagation()
+											alert(
+												'Открытие/создание заявки для ' + item.documentNumber
+											)
+										}}
+									>
+										📝
+									</button>
+								</td>
+							</tr>
+						))}
+					</ReactSortable>
+				</table>
+			</div>
+		</div>
+	)
 }
 
 export default HomePage

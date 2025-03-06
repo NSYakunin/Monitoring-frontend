@@ -1,6 +1,6 @@
-// src/pages/SettingsPage/SettingsPage.tsx
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
 import {
 	loadSettings,
 	savePrivacySettings,
@@ -10,44 +10,39 @@ import {
 	SettingsLoadData,
 	PrivacySettings,
 } from '../../api/settingsApi'
+import './SettingsPage.css'
 
 /**
- * Страница "Настройки".
- * 1) Есть чекбокс "Показать неактивных" -> showInactive
- * 2) Селект выбора пользователя -> selectedUser
- * 3) Галочки canCloseWork, canSendCloseRequest, canAccessSettings
- * 4) Флажок isUserActive
- * 5) Выбор подразделений (UserSelectedDivisionIds)
- * 6) Новый пароль
- * 7) Кнопка "Сохранить"
- * 8) Кнопка "Зарегистрировать" (в модальном окне)
+ * Страница "Настройки", аналог Razor-страницы /Settings
+ * Здесь всё то же самое, что и у вас:
+ *  - showInactive
+ *  - список пользователей
+ *  - выбранный пользователь
+ *  - чекбоксы canCloseWork, canSendCloseRequest, canAccessSettings
+ *  - isUserActive
+ *  - выбранные подразделения
+ *  - смена пароля
+ *  - модальное окно "Регистрация пользователя"
  */
 const SettingsPage: React.FC = () => {
 	const navigate = useNavigate()
 
-	// Состояние: показывать ли неактивных
 	const [showInactive, setShowInactive] = useState(false)
-	// Выбранный пользователь (smallName)
 	const [selectedUser, setSelectedUser] = useState('')
-	// Данные, загруженные с бэка (список всех пользователей, подразделений и т. д.)
 	const [settingsData, setSettingsData] = useState<SettingsLoadData | null>(
 		null
 	)
 
-	// Локальные флаги (privacy)
 	const [privacy, setPrivacy] = useState<PrivacySettings>({
 		canCloseWork: false,
 		canSendCloseRequest: false,
 		canAccessSettings: false,
 	})
-	// Активен/неактивен
 	const [isActive, setIsActive] = useState(true)
-	// Список выбранных подразделений
 	const [subdivisions, setSubdivisions] = useState<number[]>([])
-	// Новый пароль
 	const [newPassword, setNewPassword] = useState('')
 
-	// Поля для формы регистрации
+	// Поля для регистрации
 	const [regFullName, setRegFullName] = useState('')
 	const [regSmallName, setRegSmallName] = useState('')
 	const [regDivisionId, setRegDivisionId] = useState<number | null>(null)
@@ -56,7 +51,6 @@ const SettingsPage: React.FC = () => {
 	const [regCanSend, setRegCanSend] = useState(false)
 	const [regCanAccess, setRegCanAccess] = useState(false)
 
-	// При монтировании / изменении showInactive / selectedUser -> грузим настройки
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
 		if (!token) {
@@ -64,15 +58,14 @@ const SettingsPage: React.FC = () => {
 			return
 		}
 		reloadSettings()
-	}, [showInactive, selectedUser, navigate])
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [showInactive, selectedUser])
 
-	// Функция загрузки
 	const reloadSettings = () => {
 		loadSettings(showInactive, selectedUser)
 			.then(res => {
 				setSettingsData(res)
 
-				// Если res.selectedUserName заполнено, значит выбрали пользователя -> выставляем локальные галочки
 				if (res.selectedUserName) {
 					setSelectedUser(res.selectedUserName)
 				}
@@ -100,27 +93,25 @@ const SettingsPage: React.FC = () => {
 			})
 	}
 
-	// Смена пользователя
 	const handleUserChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
 		setSelectedUser(e.target.value)
 	}
 
-	// Сохранение
 	const handleSaveAll = async () => {
 		if (!selectedUser) {
 			alert('Сначала выберите пользователя')
 			return
 		}
 		try {
-			// 1) Сохранение приватных настроек
+			// 1) Приватные настройки
 			const resp1 = await savePrivacySettings(selectedUser, privacy, isActive)
 			if (!resp1.success) throw new Error(resp1.message || 'Ошибка savePrivacy')
 
-			// 2) Сохраняем подразделения
+			// 2) Подразделения
 			const resp2 = await saveSubdivisions(selectedUser, subdivisions)
 			if (!resp2.success) throw new Error(resp2.message || 'Ошибка saveSubs')
 
-			// 3) Если есть новый пароль
+			// 3) Пароль (если заполнен)
 			if (newPassword.trim()) {
 				const resp3 = await changeUserPassword(selectedUser, newPassword.trim())
 				if (!resp3.success)
@@ -134,7 +125,6 @@ const SettingsPage: React.FC = () => {
 		}
 	}
 
-	// Регистрация
 	const handleRegisterUser = async () => {
 		if (!regFullName || !regSmallName || !regPassword) {
 			alert('Заполните ФИО, логин и пароль')
@@ -153,6 +143,8 @@ const SettingsPage: React.FC = () => {
 			if (!resp.success) throw new Error(resp.message || 'Ошибка регистрации')
 
 			alert('Пользователь зарегистрирован!')
+
+			// Сбрасываем поля
 			setRegFullName('')
 			setRegSmallName('')
 			setRegPassword('')
@@ -161,10 +153,10 @@ const SettingsPage: React.FC = () => {
 			setRegCanSend(false)
 			setRegCanAccess(false)
 
-			// Обновляем список пользователей
+			// Обновляем список
 			reloadSettings()
-		} catch (e: any) {
-			alert(e.message)
+		} catch (ex: any) {
+			alert(ex.message)
 		}
 	}
 
@@ -173,8 +165,13 @@ const SettingsPage: React.FC = () => {
 	}
 
 	return (
-		<div className='container mt-4' style={{ maxWidth: '1400px' }}>
-			<h2 className='mb-4 text-center'>Управление настройками и ролями</h2>
+		<div
+			className='container mt-4 settings-page fade-in'
+			style={{ maxWidth: '1400px' }}
+		>
+			<h2 className='mb-4 text-center'>
+				Управление настройками и ролями пользователей
+			</h2>
 
 			<div className='text-end mb-4'>
 				<button
@@ -188,12 +185,12 @@ const SettingsPage: React.FC = () => {
 
 			<div className='row g-4'>
 				<div className='col-md-5'>
-					{/* Карточка "Выберите пользователя" */}
+					{/* Выберите пользователя */}
 					<div className='card custom-card mb-4'>
-						<div className='card-header bg-secondary text-white'>
-							<h5>Выберите пользователя</h5>
+						<div className='card-header custom-card-header'>
+							<h5 className='mb-0'>Выберите пользователя</h5>
 						</div>
-						<div className='card-body'>
+						<div className='card-body custom-card-body'>
 							<div className='form-check mb-3'>
 								<input
 									className='form-check-input'
@@ -208,7 +205,7 @@ const SettingsPage: React.FC = () => {
 							</div>
 
 							<select
-								className='form-select'
+								className='form-select multi-col-select'
 								value={selectedUser}
 								onChange={handleUserChange}
 							>
@@ -222,44 +219,42 @@ const SettingsPage: React.FC = () => {
 						</div>
 					</div>
 
-					{/* Выбор подразделений */}
+					{/* Подразделения */}
 					<div className='card custom-card mb-4'>
-						<div className='card-header bg-secondary text-white'>
-							<h5>Подразделения для просмотра</h5>
+						<div className='card-header custom-card-header'>
+							<h5 className='mb-0'>Подразделения для просмотра</h5>
 						</div>
-						<div className='card-body'>
+						<div className='card-body custom-card-body'>
 							{selectedUser ? (
-								<div className='row'>
+								<div className='subdivisions-grid-3'>
 									{settingsData.subdivisions.map(sd => {
 										const checked = subdivisions.includes(sd.idDivision)
 										return (
-											<div className='col-6' key={sd.idDivision}>
-												<div className='form-check mb-2'>
-													<input
-														type='checkbox'
-														className='form-check-input'
-														id={`sub_${sd.idDivision}`}
-														checked={checked}
-														onChange={e => {
-															if (e.target.checked) {
-																setSubdivisions(prev => [
-																	...prev,
-																	sd.idDivision,
-																])
-															} else {
-																setSubdivisions(prev =>
-																	prev.filter(x => x !== sd.idDivision)
-																)
-															}
-														}}
-													/>
-													<label
-														htmlFor={`sub_${sd.idDivision}`}
-														className='form-check-label'
-													>
-														{sd.smallNameDivision}
-													</label>
-												</div>
+											<div
+												className='form-check d-flex align-items-center'
+												key={sd.idDivision}
+											>
+												<input
+													type='checkbox'
+													className='form-check-input'
+													id={`sub_${sd.idDivision}`}
+													checked={checked}
+													onChange={e => {
+														if (e.target.checked) {
+															setSubdivisions(prev => [...prev, sd.idDivision])
+														} else {
+															setSubdivisions(prev =>
+																prev.filter(x => x !== sd.idDivision)
+															)
+														}
+													}}
+												/>
+												<label
+													htmlFor={`sub_${sd.idDivision}`}
+													className='form-check-label ms-2'
+												>
+													{sd.smallNameDivision}
+												</label>
 											</div>
 										)
 									})}
@@ -273,17 +268,23 @@ const SettingsPage: React.FC = () => {
 
 				<div className='col-md-7'>
 					<div className='card custom-card mb-4'>
-						<div className='card-header bg-secondary text-white'>
-							<h5>Настройки приватности</h5>
+						<div className='card-header custom-card-header'>
+							<h5 className='mb-0'>Настройки приватности</h5>
 						</div>
-						<div className='card-body'>
+						<div className='card-body custom-card-body'>
 							{selectedUser ? (
 								<>
-									<table className='table table-bordered'>
+									<table className='table table-bordered table-custom'>
+										<thead>
+											<tr>
+												<th>Параметр</th>
+												<th className='text-center'>Разрешено?</th>
+											</tr>
+										</thead>
 										<tbody>
 											<tr>
-												<td>Может закрывать работы</td>
-												<td>
+												<td>Возможность закрывать работы</td>
+												<td className='text-center'>
 													<input
 														type='checkbox'
 														checked={privacy.canCloseWork}
@@ -297,8 +298,8 @@ const SettingsPage: React.FC = () => {
 												</td>
 											</tr>
 											<tr>
-												<td>Может отправлять заявки</td>
-												<td>
+												<td>Возможность отправлять заявки на закрытие</td>
+												<td className='text-center'>
 													<input
 														type='checkbox'
 														checked={privacy.canSendCloseRequest}
@@ -312,8 +313,8 @@ const SettingsPage: React.FC = () => {
 												</td>
 											</tr>
 											<tr>
-												<td>Имеет доступ к настройкам</td>
-												<td>
+												<td>Доступ к настройкам</td>
+												<td className='text-center'>
 													<input
 														type='checkbox'
 														checked={privacy.canAccessSettings}
@@ -328,7 +329,7 @@ const SettingsPage: React.FC = () => {
 											</tr>
 											<tr>
 												<td>Пользователь активен</td>
-												<td>
+												<td className='text-center'>
 													<input
 														type='checkbox'
 														checked={isActive}
@@ -340,7 +341,9 @@ const SettingsPage: React.FC = () => {
 									</table>
 
 									<div className='mb-3'>
-										<label>Новый пароль (если нужно сменить):</label>
+										<label className='form-label'>
+											Новый пароль (если нужно изменить):
+										</label>
 										<input
 											type='password'
 											className='form-control'
@@ -350,7 +353,10 @@ const SettingsPage: React.FC = () => {
 									</div>
 
 									<div className='text-end'>
-										<button className='btn btn-success' onClick={handleSaveAll}>
+										<button
+											className='btn btn-success shadow-sm'
+											onClick={handleSaveAll}
+										>
 											Сохранить
 										</button>
 									</div>
@@ -383,7 +389,7 @@ const SettingsPage: React.FC = () => {
 						</div>
 						<div className='modal-body'>
 							<div className='mb-3'>
-								<label>ФИО:</label>
+								<label className='form-label'>ФИО:</label>
 								<input
 									type='text'
 									className='form-control'
@@ -392,7 +398,7 @@ const SettingsPage: React.FC = () => {
 								/>
 							</div>
 							<div className='mb-3'>
-								<label>Короткое имя (login):</label>
+								<label className='form-label'>Короткое имя (login):</label>
 								<input
 									type='text'
 									className='form-control'
@@ -401,7 +407,9 @@ const SettingsPage: React.FC = () => {
 								/>
 							</div>
 							<div className='mb-3'>
-								<label>idDivision (необязательно):</label>
+								<label className='form-label'>
+									ID подразделения (необязательно):
+								</label>
 								<input
 									type='number'
 									className='form-control'
@@ -414,7 +422,7 @@ const SettingsPage: React.FC = () => {
 								/>
 							</div>
 							<div className='mb-3'>
-								<label>Пароль:</label>
+								<label className='form-label'>Пароль:</label>
 								<input
 									type='password'
 									className='form-control'

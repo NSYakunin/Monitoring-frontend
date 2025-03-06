@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
 import {
 	getMyRequests,
 	setRequestStatus,
 	MyRequestDto,
 } from '../../api/myRequestsApi'
+import './MyRequestsPage.css'
 
 const MyRequestsPage: React.FC = () => {
 	const navigate = useNavigate()
@@ -21,7 +23,6 @@ const MyRequestsPage: React.FC = () => {
 			.then(data => setRequests(data))
 			.catch(err => {
 				console.error(err)
-				// если 403
 				setError(err.response?.data || 'Ошибка при загрузке заявок')
 			})
 	}, [navigate])
@@ -47,31 +48,30 @@ const MyRequestsPage: React.FC = () => {
 			)
 			if (resp.success) {
 				alert('Статус обновлён')
-				// Обновляем список
 				const updated = await getMyRequests()
 				setRequests(updated)
 			} else {
 				alert(`Ошибка: ${resp.message || ''}`)
 			}
-		} catch (err: any) {
-			console.error(err)
+		} catch (ex: any) {
+			console.error(ex)
 			alert('Ошибка при отправке запроса')
 		}
 	}
 
 	if (error) {
 		return (
-			<div className='container mt-3'>
-				<h4>Мои входящие заявки</h4>
+			<div className='container mt-3 fade-in'>
+				<h4 className='mb-3'>Мои входящие заявки</h4>
 				<div className='alert alert-danger'>{error}</div>
 			</div>
 		)
 	}
 
 	return (
-		<div className='container mt-3'>
+		<div className='container mt-3 fade-in my-requests-page'>
 			<div className='d-flex justify-content-between mb-3'>
-				<h4>Мои входящие заявки</h4>
+				<h4 className='section-title'>Мои входящие заявки</h4>
 				<button className='btn btn-secondary' onClick={() => navigate('/')}>
 					На главную
 				</button>
@@ -84,7 +84,7 @@ const MyRequestsPage: React.FC = () => {
 				>
 					<table className='table table-bordered table-hover'>
 						<thead>
-							<tr>
+							<tr className='sticky-header'>
 								<th>Документ</th>
 								<th>Работа</th>
 								<th>Исполнитель</th>
@@ -122,13 +122,13 @@ const MyRequestsPage: React.FC = () => {
 										<td>{r.note}</td>
 										<td>
 											<button
-												className='btn btn-sm btn-success me-2'
+												className='btn btn-sm btn-approve me-2'
 												onClick={() => handleSetStatus(r, 'Accepted')}
 											>
 												Принять
 											</button>
 											<button
-												className='btn btn-sm btn-danger'
+												className='btn btn-sm btn-decline'
 												onClick={() => handleSetStatus(r, 'Declined')}
 											>
 												Отклонить

@@ -1,9 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
+// Допустим, у вас есть api функции
 import { filterUsers, login } from '../../api/authApi'
+import './LoginPage.css'
 
 const LoginPage: React.FC = () => {
 	const navigate = useNavigate()
+
 	const [searchQuery, setSearchQuery] = useState('')
 	const [userList, setUserList] = useState<string[]>([])
 	const [selectedUser, setSelectedUser] = useState('')
@@ -37,26 +41,27 @@ const LoginPage: React.FC = () => {
 	}
 
 	return (
-		<div className='container my-5'>
-			<h3>Авторизация</h3>
-			<form onSubmit={handleSubmit}>
+		<div className='login-container fade-in'>
+			<h3 className='mb-4 text-center login-title'>Авторизация</h3>
+			<form onSubmit={handleSubmit} className='login-form card shadow p-4'>
 				<div className='mb-3'>
-					<label>Поиск пользователя:</label>
+					<label className='form-label'>Поиск пользователя:</label>
 					<input
 						type='text'
 						value={searchQuery}
 						onChange={e => setSearchQuery(e.target.value)}
 						className='form-control'
+						placeholder='Введите часть имени...'
 					/>
 				</div>
 				<div className='mb-3'>
-					<label>Пользователь:</label>
+					<label className='form-label'>Пользователь:</label>
 					<select
 						className='form-select'
 						value={selectedUser}
 						onChange={e => setSelectedUser(e.target.value)}
 					>
-						<option value=''>-- Выберите --</option>
+						<option value=''>-- Выберите пользователя --</option>
 						{userList.map(u => (
 							<option key={u} value={u}>
 								{u}
@@ -65,7 +70,7 @@ const LoginPage: React.FC = () => {
 					</select>
 				</div>
 				<div className='mb-3'>
-					<label>Пароль:</label>
+					<label className='form-label'>Пароль:</label>
 					<input
 						type='password'
 						value={password}
@@ -73,9 +78,9 @@ const LoginPage: React.FC = () => {
 						className='form-control'
 					/>
 				</div>
-				{errorMessage && <div className='text-danger'>{errorMessage}</div>}
+				{errorMessage && <div className='text-danger mb-3'>{errorMessage}</div>}
 
-				<button type='submit' className='btn btn-primary'>
+				<button type='submit' className='btn btn-primary w-100'>
 					Войти
 				</button>
 			</form>
