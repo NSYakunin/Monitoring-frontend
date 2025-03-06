@@ -1,3 +1,4 @@
+// src/pages/SettingsPage/SettingsPage.tsx
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -10,29 +11,44 @@ import {
 	PrivacySettings,
 } from '../../api/settingsApi'
 
+/**
+ * Страница "Настройки".
+ * 1) Есть чекбокс "Показать неактивных" -> showInactive
+ * 2) Селект выбора пользователя -> selectedUser
+ * 3) Галочки canCloseWork, canSendCloseRequest, canAccessSettings
+ * 4) Флажок isUserActive
+ * 5) Выбор подразделений (UserSelectedDivisionIds)
+ * 6) Новый пароль
+ * 7) Кнопка "Сохранить"
+ * 8) Кнопка "Зарегистрировать" (в модальном окне)
+ */
 const SettingsPage: React.FC = () => {
 	const navigate = useNavigate()
 
+	// Состояние: показывать ли неактивных
 	const [showInactive, setShowInactive] = useState(false)
+	// Выбранный пользователь (smallName)
 	const [selectedUser, setSelectedUser] = useState('')
-	const [data, setData] = useState<SettingsLoadData | null>(null)
+	// Данные, загруженные с бэка (список всех пользователей, подразделений и т. д.)
+	const [settingsData, setSettingsData] = useState<SettingsLoadData | null>(
+		null
+	)
 
-	// Поля для прав
+	// Локальные флаги (privacy)
 	const [privacy, setPrivacy] = useState<PrivacySettings>({
 		canCloseWork: false,
 		canSendCloseRequest: false,
 		canAccessSettings: false,
 	})
+	// Активен/неактивен
 	const [isActive, setIsActive] = useState(true)
-
 	// Список выбранных подразделений
-	const [userDivisions, setUserDivisions] = useState<number[]>([])
-
+	const [subdivisions, setSubdivisions] = useState<number[]>([])
 	// Новый пароль
 	const [newPassword, setNewPassword] = useState('')
 
-	// Регистрация (поля)
-	const [regFio, setRegFio] = useState('')
+	// Поля для формы регистрации
+	const [regFullName, setRegFullName] = useState('')
 	const [regSmallName, setRegSmallName] = useState('')
 	const [regDivisionId, setRegDivisionId] = useState<number | null>(null)
 	const [regPassword, setRegPassword] = useState('')
@@ -40,6 +56,7 @@ const SettingsPage: React.FC = () => {
 	const [regCanSend, setRegCanSend] = useState(false)
 	const [regCanAccess, setRegCanAccess] = useState(false)
 
+	// При монтировании / изменении showInactive / selectedUser -> грузим настройки
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
 		if (!token) {
@@ -49,19 +66,16 @@ const SettingsPage: React.FC = () => {
 		reloadSettings()
 	}, [showInactive, selectedUser, navigate])
 
+	// Функция загрузки
 	const reloadSettings = () => {
 		loadSettings(showInactive, selectedUser)
 			.then(res => {
-				setData(res)
+				setSettingsData(res)
 
-				// Если есть res.selectedUserName => заполняем локальные поля
+				// Если res.selectedUserName заполнено, значит выбрали пользователя -> выставляем локальные галочки
 				if (res.selectedUserName) {
 					setSelectedUser(res.selectedUserName)
-				} else {
-					// нет выбранного пользователя
-					setSelectedUser('')
 				}
-
 				if (res.currentPrivacySettings) {
 					setPrivacy({
 						canCloseWork: res.currentPrivacySettings.canCloseWork,
@@ -77,60 +91,58 @@ const SettingsPage: React.FC = () => {
 				}
 
 				setIsActive(res.isUserValid)
-
-				setUserDivisions(res.userSelectedDivisionIds || [])
-
-				// newPassword сбрасываем
+				setSubdivisions(res.userSelectedDivisionIds || [])
 				setNewPassword('')
 			})
-			.catch(e => console.error(e))
+			.catch(err => {
+				console.error('Ошибка загрузки настроек:', err)
+				alert('Ошибка при загрузке настроек')
+			})
 	}
 
+	// Смена пользователя
 	const handleUserChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
 		setSelectedUser(e.target.value)
 	}
 
-	const handleSaveSettings = async () => {
+	// Сохранение
+	const handleSaveAll = async () => {
 		if (!selectedUser) {
 			alert('Сначала выберите пользователя')
 			return
 		}
 		try {
-			// 1) Сохраняем приватные настройки
+			// 1) Сохранение приватных настроек
 			const resp1 = await savePrivacySettings(selectedUser, privacy, isActive)
-			if (!resp1.success)
-				throw new Error(
-					resp1.message || 'Ошибка при сохранении приватных настроек'
-				)
+			if (!resp1.success) throw new Error(resp1.message || 'Ошибка savePrivacy')
 
 			// 2) Сохраняем подразделения
-			const resp2 = await saveSubdivisions(selectedUser, userDivisions)
-			if (!resp2.success)
-				throw new Error(resp2.message || 'Ошибка при сохранении подразделений')
+			const resp2 = await saveSubdivisions(selectedUser, subdivisions)
+			if (!resp2.success) throw new Error(resp2.message || 'Ошибка saveSubs')
 
-			// 3) Если задан новый пароль
+			// 3) Если есть новый пароль
 			if (newPassword.trim()) {
 				const resp3 = await changeUserPassword(selectedUser, newPassword.trim())
 				if (!resp3.success)
-					throw new Error(resp3.message || 'Ошибка при смене пароля')
+					throw new Error(resp3.message || 'Ошибка changePass')
 			}
 
-			alert('Настройки сохранены')
+			alert('Настройки успешно сохранены')
 			reloadSettings()
 		} catch (e: any) {
 			alert(e.message)
 		}
 	}
 
-	// Регистрация пользователя
-	const handleRegister = async () => {
-		if (!regFio || !regSmallName || !regPassword) {
-			alert('Заполните ФИО, короткое имя и пароль')
+	// Регистрация
+	const handleRegisterUser = async () => {
+		if (!regFullName || !regSmallName || !regPassword) {
+			alert('Заполните ФИО, логин и пароль')
 			return
 		}
 		try {
 			const resp = await registerUser({
-				fullName: regFio,
+				fullName: regFullName,
 				smallName: regSmallName,
 				idDivision: regDivisionId || undefined,
 				password: regPassword,
@@ -138,39 +150,35 @@ const SettingsPage: React.FC = () => {
 				canSendCloseRequest: regCanSend,
 				canAccessSettings: regCanAccess,
 			})
-			if (!resp.success) {
-				throw new Error(resp.message || 'Ошибка при регистрации')
-			}
+			if (!resp.success) throw new Error(resp.message || 'Ошибка регистрации')
+
 			alert('Пользователь зарегистрирован!')
-			// и закрыть форму/очистить поля
-			setRegFio('')
+			setRegFullName('')
 			setRegSmallName('')
-			setRegDivisionId(null)
 			setRegPassword('')
+			setRegDivisionId(null)
 			setRegCanClose(false)
 			setRegCanSend(false)
 			setRegCanAccess(false)
-			// Обновим список
+
+			// Обновляем список пользователей
 			reloadSettings()
 		} catch (e: any) {
 			alert(e.message)
 		}
 	}
 
-	if (!data) {
-		return <div className='container mt-4'>Загрузка настроек...</div>
+	if (!settingsData) {
+		return <div className='container mt-4'>Загрузка...</div>
 	}
 
 	return (
 		<div className='container mt-4' style={{ maxWidth: '1400px' }}>
-			<h2 className='mb-4 text-center'>
-				Управление настройками и ролями пользователей
-			</h2>
+			<h2 className='mb-4 text-center'>Управление настройками и ролями</h2>
 
 			<div className='text-end mb-4'>
-				{/* Просто кнопка, по нажатию которой показываем форму регистрации */}
 				<button
-					className='btn btn-primary'
+					className='btn btn-primary shadow-sm'
 					data-bs-toggle='modal'
 					data-bs-target='#registerModal'
 				>
@@ -180,78 +188,76 @@ const SettingsPage: React.FC = () => {
 
 			<div className='row g-4'>
 				<div className='col-md-5'>
-					<div className='card mb-4'>
+					{/* Карточка "Выберите пользователя" */}
+					<div className='card custom-card mb-4'>
 						<div className='card-header bg-secondary text-white'>
 							<h5>Выберите пользователя</h5>
 						</div>
 						<div className='card-body'>
 							<div className='form-check mb-3'>
 								<input
-									type='checkbox'
 									className='form-check-input'
-									id='showInactiveChk'
+									type='checkbox'
+									id='showInactive'
 									checked={showInactive}
 									onChange={e => setShowInactive(e.target.checked)}
 								/>
-								<label className='form-check-label' htmlFor='showInactiveChk'>
+								<label className='form-check-label' htmlFor='showInactive'>
 									Показать неактивных
 								</label>
 							</div>
 
-							<div className='mb-3'>
-								<label>Пользователь:</label>
-								<select
-									className='form-select'
-									value={selectedUser}
-									onChange={handleUserChange}
-								>
-									<option value=''>-- Не выбран --</option>
-									{data.allUsers.map(u => (
-										<option key={u} value={u}>
-											{u}
-										</option>
-									))}
-								</select>
-							</div>
+							<select
+								className='form-select'
+								value={selectedUser}
+								onChange={handleUserChange}
+							>
+								<option value=''>-- Не выбран --</option>
+								{settingsData.allUsers.map(u => (
+									<option key={u} value={u}>
+										{u}
+									</option>
+								))}
+							</select>
 						</div>
 					</div>
 
-					{/* Подразделения */}
-					<div className='card mb-4'>
+					{/* Выбор подразделений */}
+					<div className='card custom-card mb-4'>
 						<div className='card-header bg-secondary text-white'>
-							<h5>Выбор подразделений</h5>
+							<h5>Подразделения для просмотра</h5>
 						</div>
 						<div className='card-body'>
 							{selectedUser ? (
 								<div className='row'>
-									{data.subdivisions.map(s => {
-										const checked = userDivisions.includes(s.idDivision)
+									{settingsData.subdivisions.map(sd => {
+										const checked = subdivisions.includes(sd.idDivision)
 										return (
-											<div key={s.idDivision} className='col-6 mb-2'>
-												<div className='form-check'>
+											<div className='col-6' key={sd.idDivision}>
+												<div className='form-check mb-2'>
 													<input
 														type='checkbox'
 														className='form-check-input'
-														id={`div_${s.idDivision}`}
+														id={`sub_${sd.idDivision}`}
 														checked={checked}
 														onChange={e => {
 															if (e.target.checked) {
-																setUserDivisions(prev => [
+																setSubdivisions(prev => [
 																	...prev,
-																	s.idDivision,
+																	sd.idDivision,
 																])
 															} else {
-																setUserDivisions(prev =>
-																	prev.filter(x => x !== s.idDivision)
+																setSubdivisions(prev =>
+																	prev.filter(x => x !== sd.idDivision)
 																)
 															}
 														}}
 													/>
 													<label
+														htmlFor={`sub_${sd.idDivision}`}
 														className='form-check-label'
-														htmlFor={`div_${s.idDivision}`}
 													>
-														{s.smallNameDivision || `Division ${s.idDivision}`}
+														{sd.smallNameDivision}
 													</label>
 												</div>
 											</div>
@@ -266,7 +272,7 @@ const SettingsPage: React.FC = () => {
 				</div>
 
 				<div className='col-md-7'>
-					<div className='card mb-4'>
+					<div className='card custom-card mb-4'>
 						<div className='card-header bg-secondary text-white'>
 							<h5>Настройки приватности</h5>
 						</div>
@@ -282,10 +288,10 @@ const SettingsPage: React.FC = () => {
 														type='checkbox'
 														checked={privacy.canCloseWork}
 														onChange={e =>
-															setPrivacy({
-																...privacy,
+															setPrivacy(prev => ({
+																...prev,
 																canCloseWork: e.target.checked,
-															})
+															}))
 														}
 													/>
 												</td>
@@ -297,10 +303,10 @@ const SettingsPage: React.FC = () => {
 														type='checkbox'
 														checked={privacy.canSendCloseRequest}
 														onChange={e =>
-															setPrivacy({
-																...privacy,
+															setPrivacy(prev => ({
+																...prev,
 																canSendCloseRequest: e.target.checked,
-															})
+															}))
 														}
 													/>
 												</td>
@@ -312,10 +318,10 @@ const SettingsPage: React.FC = () => {
 														type='checkbox'
 														checked={privacy.canAccessSettings}
 														onChange={e =>
-															setPrivacy({
-																...privacy,
+															setPrivacy(prev => ({
+																...prev,
 																canAccessSettings: e.target.checked,
-															})
+															}))
 														}
 													/>
 												</td>
@@ -332,6 +338,7 @@ const SettingsPage: React.FC = () => {
 											</tr>
 										</tbody>
 									</table>
+
 									<div className='mb-3'>
 										<label>Новый пароль (если нужно сменить):</label>
 										<input
@@ -341,11 +348,9 @@ const SettingsPage: React.FC = () => {
 											onChange={e => setNewPassword(e.target.value)}
 										/>
 									</div>
+
 									<div className='text-end'>
-										<button
-											className='btn btn-success'
-											onClick={handleSaveSettings}
-										>
+										<button className='btn btn-success' onClick={handleSaveAll}>
 											Сохранить
 										</button>
 									</div>
@@ -382,8 +387,8 @@ const SettingsPage: React.FC = () => {
 								<input
 									type='text'
 									className='form-control'
-									value={regFio}
-									onChange={e => setRegFio(e.target.value)}
+									value={regFullName}
+									onChange={e => setRegFullName(e.target.value)}
 								/>
 							</div>
 							<div className='mb-3'>
@@ -396,14 +401,14 @@ const SettingsPage: React.FC = () => {
 								/>
 							</div>
 							<div className='mb-3'>
-								<label>Подразделение (ID):</label>
+								<label>idDivision (необязательно):</label>
 								<input
 									type='number'
 									className='form-control'
 									value={regDivisionId || ''}
 									onChange={e =>
 										setRegDivisionId(
-											e.target.value ? parseInt(e.target.value) : null
+											e.target.value ? parseInt(e.target.value, 10) : null
 										)
 									}
 								/>
@@ -452,10 +457,18 @@ const SettingsPage: React.FC = () => {
 							</div>
 						</div>
 						<div className='modal-footer'>
-							<button className='btn btn-secondary' data-bs-dismiss='modal'>
+							<button
+								type='button'
+								className='btn btn-secondary'
+								data-bs-dismiss='modal'
+							>
 								Отмена
 							</button>
-							<button className='btn btn-primary' onClick={handleRegister}>
+							<button
+								type='button'
+								className='btn btn-primary'
+								onClick={handleRegisterUser}
+							>
 								Зарегистрировать
 							</button>
 						</div>

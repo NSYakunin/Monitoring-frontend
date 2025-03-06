@@ -5,11 +5,17 @@ import { useNavigate } from 'react-router-dom'
 import {
 	getAllowedDivisions,
 	getApprovers,
+	getDivisionName,
 	getExecutors,
 	getFilteredWorkItems,
 	WorkItemDto,
 } from '../../api/workItemsApi'
 import './HomePage.css'
+
+interface DivisionItem {
+	id: number
+	name: string
+}
 
 interface FilterState {
 	selectedDivision: number
@@ -23,8 +29,8 @@ interface FilterState {
 const HomePage: React.FC = () => {
 	const navigate = useNavigate()
 
-	// Список доступных подразделений
-	const [allowedDivisions, setAllowedDivisions] = useState<number[]>([])
+	// Список отделов (id + name)
+	const [allowedDivisions, setAllowedDivisions] = useState<DivisionItem[]>([])
 
 	// Список исполнителей / принимающих
 	const [executorsList, setExecutorsList] = useState<string[]>([])
@@ -53,31 +59,31 @@ const HomePage: React.FC = () => {
 
 		// 1) Загружаем список доступных отделов
 		getAllowedDivisions()
-			.then(divs => {
-				setAllowedDivisions(divs)
-				if (divs.length === 0) {
-					// Если у пользователя нет доступных отделов - странно, можно обработать ошибку
+			.then(async divIds => {
+				if (divIds.length === 0) {
+					// Нет доступных отделов
 					return
 				}
+				// Для каждого divId подгружаем название
+				const divisionsWithNames: DivisionItem[] = []
+				for (let d of divIds) {
+					const name = await getDivisionName(d)
+					divisionsWithNames.push({ id: d, name })
+				}
+				setAllowedDivisions(divisionsWithNames)
 
-				// 2) Пытаемся взять сохранённый divisionId из localStorage
+				// Пытаемся взять из localStorage
 				const storedDivId = localStorage.getItem('divisionId')
 				let divIdFromStorage = 0
 				if (storedDivId) {
 					divIdFromStorage = parseInt(storedDivId, 10)
 				}
-
-				// 3) Проверяем, есть ли он в списке доступных
-				let defaultDiv = divs[0] // По умолчанию берём первый
-				if (divs.includes(divIdFromStorage)) {
+				// Если он есть в списке – берём, иначе первый
+				let defaultDiv = divisionsWithNames[0].id
+				if (divisionsWithNames.some(x => x.id === divIdFromStorage)) {
 					defaultDiv = divIdFromStorage
 				}
-
-				// Устанавливаем в filters
-				setFilters(prev => ({
-					...prev,
-					selectedDivision: defaultDiv,
-				}))
+				setFilters(prev => ({ ...prev, selectedDivision: defaultDiv }))
 			})
 			.catch(err => console.error(err))
 	}, [navigate])
@@ -217,9 +223,9 @@ const HomePage: React.FC = () => {
 							onChange={handleDivisionChange}
 							className='form-select'
 						>
-							{allowedDivisions.map(divId => (
-								<option key={divId} value={divId}>
-									Отдел {divId}
+							{allowedDivisions.map(div => (
+								<option key={div.id} value={div.id}>
+									{div.name}
 								</option>
 							))}
 						</select>

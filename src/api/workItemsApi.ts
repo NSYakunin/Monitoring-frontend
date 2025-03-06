@@ -15,10 +15,9 @@ export interface WorkItemDto {
 }
 
 const apiClient = axios.create({
-	baseURL: 'http://localhost:5100', // ваш адрес API
+	baseURL: 'http://localhost:5100', // ваш адрес бэка
 })
 
-// Подставляем JWT из localStorage
 apiClient.interceptors.request.use(config => {
 	const token = localStorage.getItem('jwtToken')
 	if (token && config.headers) {
@@ -27,7 +26,7 @@ apiClient.interceptors.request.use(config => {
 	return config
 })
 
-// Добавили divisionId
+// Подгружаем список работ
 export async function getFilteredWorkItems(
 	startDate?: string,
 	endDate?: string,
@@ -43,19 +42,19 @@ export async function getFilteredWorkItems(
 			executor,
 			approver,
 			search,
-			divisionId, // <-- передаём
+			divisionId,
 		},
 	})
 	return resp.data
 }
 
-// Список отделов, куда есть доступ
+// Список доступных отделов
 export async function getAllowedDivisions(): Promise<number[]> {
 	const resp = await apiClient.get<number[]>('/api/WorkItems/AllowedDivisions')
 	return resp.data
 }
 
-// Исполнители
+// Список исполнителей
 export async function getExecutors(divisionId: number): Promise<string[]> {
 	const resp = await apiClient.get<string[]>('/api/WorkItems/Executors', {
 		params: { divisionId },
@@ -63,7 +62,7 @@ export async function getExecutors(divisionId: number): Promise<string[]> {
 	return resp.data
 }
 
-// Принимающие
+// Список принимающих
 export async function getApprovers(divisionId: number): Promise<string[]> {
 	const resp = await apiClient.get<string[]>('/api/WorkItems/Approvers', {
 		params: { divisionId },
@@ -74,4 +73,12 @@ export async function getApprovers(divisionId: number): Promise<string[]> {
 // Сброс кэша
 export async function clearWorkItemsCache(divisionId: number): Promise<void> {
 	await apiClient.post(`/api/WorkItems/ClearCache?divisionId=${divisionId}`)
+}
+
+// НОВОЕ: Получить название отдела
+export async function getDivisionName(divisionId: number): Promise<string> {
+	const resp = await apiClient.get<string>('/api/WorkItems/DivisionName', {
+		params: { divisionId },
+	})
+	return resp.data
 }
