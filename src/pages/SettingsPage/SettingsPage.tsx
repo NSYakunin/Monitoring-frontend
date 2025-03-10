@@ -10,20 +10,9 @@ import {
 	SettingsLoadData,
 	PrivacySettings,
 } from '../../api/settingsApi'
+
 import './SettingsPage.css'
 
-/**
- * Страница "Настройки", аналог Razor-страницы /Settings
- * Здесь всё то же самое, что и у вас:
- *  - showInactive
- *  - список пользователей
- *  - выбранный пользователь
- *  - чекбоксы canCloseWork, canSendCloseRequest, canAccessSettings
- *  - isUserActive
- *  - выбранные подразделения
- *  - смена пароля
- *  - модальное окно "Регистрация пользователя"
- */
 const SettingsPage: React.FC = () => {
 	const navigate = useNavigate()
 
@@ -42,7 +31,7 @@ const SettingsPage: React.FC = () => {
 	const [subdivisions, setSubdivisions] = useState<number[]>([])
 	const [newPassword, setNewPassword] = useState('')
 
-	// Поля для регистрации
+	// Поля для регистрации пользователя
 	const [regFullName, setRegFullName] = useState('')
 	const [regSmallName, setRegSmallName] = useState('')
 	const [regDivisionId, setRegDivisionId] = useState<number | null>(null)
@@ -69,6 +58,7 @@ const SettingsPage: React.FC = () => {
 				if (res.selectedUserName) {
 					setSelectedUser(res.selectedUserName)
 				}
+
 				if (res.currentPrivacySettings) {
 					setPrivacy({
 						canCloseWork: res.currentPrivacySettings.canCloseWork,
@@ -103,22 +93,24 @@ const SettingsPage: React.FC = () => {
 			return
 		}
 		try {
-			// 1) Приватные настройки
+			// 1) Сохраняем приватные настройки
 			const resp1 = await savePrivacySettings(selectedUser, privacy, isActive)
-			if (!resp1.success) throw new Error(resp1.message || 'Ошибка savePrivacy')
+			if (!resp1.success)
+				throw new Error(resp1.message || 'Ошибка savePrivacySettings')
 
-			// 2) Подразделения
+			// 2) Сохраняем список подразделений
 			const resp2 = await saveSubdivisions(selectedUser, subdivisions)
-			if (!resp2.success) throw new Error(resp2.message || 'Ошибка saveSubs')
+			if (!resp2.success)
+				throw new Error(resp2.message || 'Ошибка saveSubdivisions')
 
-			// 3) Пароль (если заполнен)
+			// 3) Если есть новый пароль
 			if (newPassword.trim()) {
 				const resp3 = await changeUserPassword(selectedUser, newPassword.trim())
 				if (!resp3.success)
-					throw new Error(resp3.message || 'Ошибка changePass')
+					throw new Error(resp3.message || 'Ошибка changeUserPassword')
 			}
 
-			alert('Настройки успешно сохранены')
+			alert('Настройки успешно сохранены!')
 			reloadSettings()
 		} catch (e: any) {
 			alert(e.message)
@@ -140,15 +132,16 @@ const SettingsPage: React.FC = () => {
 				canSendCloseRequest: regCanSend,
 				canAccessSettings: regCanAccess,
 			})
-			if (!resp.success) throw new Error(resp.message || 'Ошибка регистрации')
+			if (!resp.success)
+				throw new Error(resp.message || 'Ошибка регистрации пользователя')
 
 			alert('Пользователь зарегистрирован!')
 
-			// Сбрасываем поля
+			// Сбрасываем поля формы
 			setRegFullName('')
 			setRegSmallName('')
-			setRegPassword('')
 			setRegDivisionId(null)
+			setRegPassword('')
 			setRegCanClose(false)
 			setRegCanSend(false)
 			setRegCanAccess(false)
@@ -185,7 +178,6 @@ const SettingsPage: React.FC = () => {
 
 			<div className='row g-4'>
 				<div className='col-md-5'>
-					{/* Выберите пользователя */}
 					<div className='card custom-card mb-4'>
 						<div className='card-header custom-card-header'>
 							<h5 className='mb-0'>Выберите пользователя</h5>
@@ -219,7 +211,6 @@ const SettingsPage: React.FC = () => {
 						</div>
 					</div>
 
-					{/* Подразделения */}
 					<div className='card custom-card mb-4'>
 						<div className='card-header custom-card-header'>
 							<h5 className='mb-0'>Подразделения для просмотра</h5>
@@ -369,7 +360,7 @@ const SettingsPage: React.FC = () => {
 				</div>
 			</div>
 
-			{/* Модальное окно регистрации */}
+			{/* Модалка регистрации */}
 			<div
 				className='modal fade'
 				id='registerModal'
@@ -468,7 +459,7 @@ const SettingsPage: React.FC = () => {
 							<button
 								type='button'
 								className='btn btn-secondary'
-								data-bs-dismiss='modal'
+								data-bs-dismiss='modal' // <-- это позволяет закрыть модалку без перезагрузки
 							>
 								Отмена
 							</button>

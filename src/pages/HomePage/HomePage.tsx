@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import axios from 'axios'
+
+// Импорт api-функций
 import {
 	getAllowedDivisions,
 	getExecutors,
@@ -9,12 +12,17 @@ import {
 	clearWorkItemsCache,
 	WorkItemDto,
 } from '../../api/workItemsApi'
+
 import {
 	getActiveNotifications,
 	NotificationDto,
 } from '../../api/notificationsApi'
+
+// DnD
 import { ReactSortable } from 'react-sortablejs'
-import axios from 'axios'
+
+// Модальное окно заявки
+import RequestModal from '../../components/RequestModal' // <-- Вынесено в другой файл
 
 import './HomePage.css'
 
@@ -22,13 +30,22 @@ import './HomePage.css'
 interface WorkItemRow extends WorkItemDto {
 	id: string
 	selected: boolean
+
+	// Поля для "pending" заявки от текущего пользователя (если есть)
+	userRequestId?: number
+	userRequestType?: string
+	userRequestDate?: string
+	userRequestNote?: string
+	userReceiver?: string
 }
 
+// Для "подразделения"
 interface DivisionItem {
 	id: number
 	name: string
 }
 
+// Фильтры
 interface FilterState {
 	selectedDivision: number
 	startDate: string
@@ -54,15 +71,44 @@ const HomePage: React.FC = () => {
 	// Список работ (после подгрузки преобразуем в массив WorkItemRow)
 	const [workItems, setWorkItems] = useState<WorkItemRow[]>([])
 
-	// Фильтры
+	// Фильтры (Пункт №5: по умолчанию startDate=2014-01-01, endDate = последний день текущего месяца)
+	const getDefaultEndDate = () => {
+		const now = new Date()
+		const year = now.getFullYear()
+		const month = now.getMonth() + 1
+		// Находим последний день текущего месяца
+		const lastDay = new Date(year, month, 0).getDate()
+		const mm = String(month).padStart(2, '0')
+		const dd = String(lastDay).padStart(2, '0')
+		return `${year}-${mm}-${dd}`
+	}
+
 	const [filters, setFilters] = useState<FilterState>({
 		selectedDivision: 0,
-		startDate: '',
-		endDate: '',
+		startDate: '2014-01-01', // дефолт
+		endDate: getDefaultEndDate(),
 		executor: '',
 		approver: '',
 		search: '',
 	})
+
+	// Для показа/скрытия модалки RequestModal
+	const [showRequestModal, setShowRequestModal] = useState(false)
+	const [modalRequestId, setModalRequestId] = useState<number | undefined>(
+		undefined
+	)
+	const [modalDocNumber, setModalDocNumber] = useState<string>('')
+	const [modalReqType, setModalReqType] = useState<string>('')
+	const [modalReqDate, setModalReqDate] = useState<string>('')
+	const [modalReqNote, setModalReqNote] = useState<string>('')
+	const [modalReceiver, setModalReceiver] = useState<string>('')
+
+	// Контролирующий и принимающий для строки (передадим в модалку)
+	const [rowController, setRowController] = useState<string>('')
+	const [rowApprover, setRowApprover] = useState<string>('')
+
+	// current userName (отправитель)
+	const userName = localStorage.getItem('userName') || ''
 
 	// При загрузке проверяем токен и грузим отделы
 	useEffect(() => {
@@ -75,7 +121,8 @@ const HomePage: React.FC = () => {
 		getAllowedDivisions()
 			.then(async divIds => {
 				if (divIds.length === 0) return
-				// Загружаем названия
+
+				// Загружаем "названия" отделов
 				const divisionsWithNames: DivisionItem[] = []
 				for (let d of divIds) {
 					const name = await getDivisionName(d)
@@ -89,11 +136,13 @@ const HomePage: React.FC = () => {
 				if (storedDivId) {
 					divIdFromStorage = parseInt(storedDivId, 10)
 				}
+
 				// Если он есть в списке – берем, иначе берем первый
 				let defaultDiv = divisionsWithNames[0].id
 				if (divisionsWithNames.some(x => x.id === divIdFromStorage)) {
 					defaultDiv = divIdFromStorage
 				}
+
 				setFilters(prev => ({ ...prev, selectedDivision: defaultDiv }))
 			})
 			.catch(err => console.error(err))
@@ -115,12 +164,12 @@ const HomePage: React.FC = () => {
 	// При любом изменении filters -> подгружаем workItems + уведомления
 	useEffect(() => {
 		if (!filters.selectedDivision) return
-
 		loadWorkItems()
 		loadNotifications(filters.selectedDivision)
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [filters])
 
+	// Загрузка уведомлений
 	const loadNotifications = (divisionId: number) => {
 		getActiveNotifications(divisionId)
 			.then(data => {
@@ -129,6 +178,7 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error('Ошибка уведомлений:', err))
 	}
 
+	// Загрузка workItems
 	const loadWorkItems = () => {
 		getFilteredWorkItems(
 			filters.startDate,
@@ -146,6 +196,7 @@ const HomePage: React.FC = () => {
 						selected: false,
 					}
 				})
+
 				setWorkItems(rows)
 			})
 			.catch(err => {
@@ -153,7 +204,7 @@ const HomePage: React.FC = () => {
 			})
 	}
 
-	// Обработчики
+	// Обработчики для фильтров
 	const handleChange = (
 		e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
 	) => {
@@ -167,6 +218,7 @@ const HomePage: React.FC = () => {
 		localStorage.setItem('divisionId', String(newDivId))
 	}
 
+	// Выход
 	const handleLogout = () => {
 		localStorage.removeItem('jwtToken')
 		localStorage.removeItem('userName')
@@ -174,10 +226,12 @@ const HomePage: React.FC = () => {
 		navigate('/login')
 	}
 
+	// "Мои заявки"
 	const handleMyRequests = () => {
 		navigate('/my-requests')
 	}
 
+	// Обновить (очистить кэш)
 	const handleRefreshCache = () => {
 		clearWorkItemsCache(filters.selectedDivision)
 			.then(() => loadWorkItems())
@@ -206,13 +260,12 @@ const HomePage: React.FC = () => {
 		toggleRowSelection(rowId)
 	}
 
-	// ReactSortable callback при перетаскивании
+	// DnD callback
 	const handleSort = (newState: WorkItemRow[]) => {
 		setWorkItems(newState)
 	}
 
 	// Экспорт
-	// При нажатии на "PDF" / "Excel" / "Word" — отправляем запрос
 	const handleExport = (format: string) => {
 		// Собираем выбранные docNumber'ы в порядке
 		const selected = workItems
@@ -220,14 +273,12 @@ const HomePage: React.FC = () => {
 			.map(r => r.documentNumber)
 
 		let finalSelection = selected
-
-		// Если ничего не выбрано, берем все
 		if (selected.length === 0) {
-			// Если не выбрано, берём все
+			// Если ничего не выбрано — берём все
 			finalSelection = workItems.map(r => r.documentNumber)
 		}
 
-		// Сформируем тело для POST
+		// Шлём на сервер
 		const body = {
 			format,
 			selectedItems: finalSelection,
@@ -244,13 +295,11 @@ const HomePage: React.FC = () => {
 				responseType: 'blob',
 			})
 			.then(res => {
-				// Скачиваем
 				const blob = new Blob([res.data], { type: res.headers['content-type'] })
 				const url = window.URL.createObjectURL(blob)
 				const link = document.createElement('a')
 				link.href = url
 
-				// Пытаемся угадать расширение
 				if (format === 'pdf') link.download = 'Export.pdf'
 				else if (format === 'excel') link.download = 'Export.xlsx'
 				else link.download = 'Export.docx'
@@ -261,8 +310,56 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error('Ошибка при экспорте:', err))
 	}
 
+	// ------------------------
+	// Открыть модалку "Создание/редактирование заявки"
+	const openRequestModal = (row: WorkItemRow) => {
+		// Если уже есть Pending-заявка (row.userRequestId), то подставим данные
+		// (В вашем случае вы бы хотели на этапе загрузки workItems уже знать, есть ли от меня заявка.
+		// Тут можно расширить DTO, чтобы бэк сразу возвращал userRequestId, userRequestType, и т.д.)
+		// Пока для примера: если (row.executor.includes(userName)), то создаём новую, иначе disabled
+		// Но лучше действительно получить с бэка нужную инфу.
+		if (!row.executor.includes(userName)) {
+			alert('Вы не являетесь исполнителем для этой работы.')
+			return
+		}
+
+		setModalDocNumber(row.documentNumber)
+		setRowController(row.controller || '')
+		setRowApprover(row.approver || '')
+
+		if (row.userRequestId) {
+			// Существующая заявка
+			setModalRequestId(row.userRequestId)
+			setModalReqType(row.userRequestType || 'корр1')
+			setModalReqDate(row.userRequestDate || '')
+			setModalReqNote(row.userRequestNote || '')
+			setModalReceiver(row.userReceiver || row.approver || '')
+		} else {
+			// Новая заявка
+			setModalRequestId(undefined)
+			setModalReqType('корр1')
+			setModalReqDate('')
+			setModalReqNote('')
+			setModalReceiver(row.approver || '')
+		}
+
+		setShowRequestModal(true)
+	}
+
+	const closeRequestModal = () => {
+		setShowRequestModal(false)
+	}
+
+	// Когда заявка успешно сохранена/обновлена
+	const handleRequestSaved = () => {
+		closeRequestModal()
+		// Перезагрузить таблицу
+		loadWorkItems()
+	}
+
 	return (
 		<div className='home-container fade-in'>
+			{/* Заголовок */}
 			<div className='d-flex justify-content-between align-items-center mb-4 page-header-block'>
 				<h3 className='page-title'>Главная страница</h3>
 				<div className='header-buttons'>
@@ -387,20 +484,20 @@ const HomePage: React.FC = () => {
 				</form>
 			</div>
 
-			{/* Уведомления */}
+			{/* Уведомления: теперь строками */}
 			<div className='mb-3 notifications-block'>
 				<h5 className='mb-2'>Уведомления</h5>
 				{notifications.length === 0 ? (
 					<div className='text-muted'>Нет активных уведомлений.</div>
 				) : (
-					<div className='notifications-container'>
+					<div className='notifications-list'>
 						{notifications.map(note => (
-							<div key={note.id} className='notification-item'>
-								<div className='notif-title'>{note.title}</div>
-								<div className='notif-meta'>
-									{note.userName} |{' '}
-									{new Date(note.dateSetInSystem).toLocaleDateString()}
-								</div>
+							<div key={note.id} className='notification-row'>
+								<strong>{note.title}</strong>
+								<span className='ms-2 text-muted'>
+									[{note.userName} |{' '}
+									{new Date(note.dateSetInSystem).toLocaleDateString()}]
+								</span>
 							</div>
 						))}
 					</div>
@@ -447,7 +544,7 @@ const HomePage: React.FC = () => {
 				</div>
 			</div>
 
-			{/* Таблица с работами (DnD) */}
+			{/* Таблица (DnD) */}
 			<div className='table-responsive table-container'>
 				<table className='table table-bordered table-hover sticky-header-table'>
 					<thead>
@@ -484,60 +581,87 @@ const HomePage: React.FC = () => {
 						tag='tbody'
 						list={workItems}
 						setList={handleSort}
-							animation={150} // анимация при перетаскивании
-							handle='.drag-handle' // элемент, за который цепляемся (можно сделать отдельный <span>)
+						animation={150}
+						handle='.drag-handle'
 					>
-						{workItems.map((item, index) => (
-							<tr
-								key={item.id}
-								className={item.selected ? 'table-selected-row' : ''}
-								onClick={e => handleRowClick(item.id, e)}
-							>
-								<td className='align-middle'>
-									<div className='d-flex align-items-center gap-2'>
-										<span>{index + 1}</span>
-										<span className='drag-handle' title='Перетащите строку'>
-											<i className='bi bi-grip-vertical'></i>
-										</span>
-									</div>
-								</td>
-								<td>{item.documentName}</td>
-								<td>{item.workName}</td>
-								<td>
-									{item.executor?.split(',').map((ex, i) => (
-										<div key={i}>{ex.trim()}</div>
-									))}
-								</td>
-								<td>{item.controller}</td>
-								<td>{item.approver}</td>
-								<td>{item.planDate}</td>
-								<td>{item.korrect1}</td>
-								<td>{item.korrect2}</td>
-								<td>{item.korrect3}</td>
-								<td>
-									<input
-										type='checkbox'
-										checked={item.selected}
-										onChange={() => toggleRowSelection(item.id)}
-									/>
-									<button
-										type='button'
-										className='btn btn-sm btn-outline-secondary ms-2'
-										onClick={e => {
-											e.stopPropagation()
-											alert(
-												'Открытие/создание заявки для ' + item.documentNumber
-											)
-										}}
-									>
-										📝
-									</button>
-								</td>
-							</tr>
-						))}
+						{workItems.map((item, index) => {
+							// Подсветка (пример): если requestType="факт" => table-info, если "корр" => table-warning
+							let rowClass = ''
+							if (item.userRequestType === 'факт') {
+								rowClass = 'table-info'
+							} else if (item.userRequestType?.startsWith('корр')) {
+								rowClass = 'table-warning'
+							}
+
+							return (
+								<tr
+									key={item.id}
+									className={
+										item.selected ? rowClass + ' table-selected-row' : rowClass
+									}
+									onClick={e => handleRowClick(item.id, e)}
+								>
+									<td className='align-middle'>
+										<div className='d-flex align-items-center gap-2'>
+											<span>{index + 1}</span>
+											<span className='drag-handle' title='Перетащите строку'>
+												<i className='bi bi-grip-vertical'></i>
+											</span>
+										</div>
+									</td>
+									<td>{item.documentName}</td>
+									<td>{item.workName}</td>
+									<td>
+										{item.executor?.split(',').map((ex, i) => (
+											<div key={i}>{ex.trim()}</div>
+										))}
+									</td>
+									<td>{item.controller}</td>
+									<td>{item.approver}</td>
+									<td>{item.planDate}</td>
+									<td>{item.korrect1}</td>
+									<td>{item.korrect2}</td>
+									<td>{item.korrect3}</td>
+									<td>
+										<input
+											type='checkbox'
+											checked={item.selected}
+											onChange={() => toggleRowSelection(item.id)}
+										/>
+										<button
+											type='button'
+											className='btn btn-sm btn-outline-secondary ms-2'
+											onClick={e => {
+												e.stopPropagation()
+												openRequestModal(item)
+											}}
+										>
+											📝
+										</button>
+									</td>
+								</tr>
+							)
+						})}
 					</ReactSortable>
 				</table>
 			</div>
+
+			{/* Модалка RequestModal (показываем при showRequestModal===true) */}
+			{showRequestModal && (
+				<RequestModal
+					requestId={modalRequestId}
+					documentNumber={modalDocNumber}
+					currentRequestType={modalReqType}
+					currentProposedDate={modalReqDate}
+					currentNote={modalReqNote}
+					currentReceiver={modalReceiver}
+					executorName={userName}
+					controllerName={rowController}
+					approverName={rowApprover}
+					onClose={closeRequestModal}
+					onRequestSaved={handleRequestSaved}
+				/>
+			)}
 		</div>
 	)
 }
