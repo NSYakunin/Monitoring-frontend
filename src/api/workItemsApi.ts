@@ -12,6 +12,14 @@ export interface WorkItemDto {
 	korrect2?: string
 	korrect3?: string
 	factDate?: string
+
+	// Новые поля:
+	highlightCssClass?: string
+	userPendingRequestId?: number
+	userPendingRequestType?: string
+	userPendingProposedDate?: string
+	userPendingRequestNote?: string
+	userPendingReceiver?: string
 }
 
 const apiClient = axios.create({

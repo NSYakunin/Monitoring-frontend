@@ -585,12 +585,17 @@ const HomePage: React.FC = () => {
 						handle='.drag-handle'
 					>
 						{workItems.map((item, index) => {
-							// Подсветка (пример): если requestType="факт" => table-info, если "корр" => table-warning
+							// Вместо ручной проверки requestType === "факт",
+							// берём готовый highlightCssClass:
 							let rowClass = ''
-							if (item.userRequestType === 'факт') {
-								rowClass = 'table-info'
-							} else if (item.userRequestType?.startsWith('корр')) {
-								rowClass = 'table-warning'
+							if (item.highlightCssClass) {
+								rowClass = item.highlightCssClass
+							}
+
+							// Если строка выделена чекбоксом
+							if (item.selected) {
+								// можем добавить дополнительный класс
+								rowClass += ' table-selected-row'
 							}
 
 							return (
