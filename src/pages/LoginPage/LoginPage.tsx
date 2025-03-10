@@ -15,6 +15,11 @@ const LoginPage: React.FC = () => {
 	const [errorMessage, setErrorMessage] = useState('')
 
 	useEffect(() => {
+		if (searchQuery.length < 3) {
+			// не делаем запрос, обнуляем userList
+			setUserList([])
+			return
+		}
 		filterUsers(searchQuery)
 			.then(data => setUserList(data))
 			.catch(err => console.error(err))
