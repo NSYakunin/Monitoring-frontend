@@ -1,8 +1,4 @@
-/**
- * Компонент модального окна для создания/редактирования заявки
- * (чтобы HomePage.tsx не разрастался)
- */
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
 	createWorkRequest,
 	updateWorkRequest,
@@ -20,12 +16,14 @@ interface RequestModalProps {
 	currentNote?: string
 	currentReceiver?: string
 
-	executorName: string // Тот, кто отправляет (sender). Обычно берем userName из локального хранилища
+	// Эти поля нужны, чтобы заполнить селект "Получатель" (контролирующий / принимающий)
+	executorName: string
 	controllerName: string
 	approverName: string
 
-	onClose: () => void // Когда закрыли (успешно или "Отмена")
-	onRequestSaved: () => void // Когда нужно, чтобы родитель перезагрузил данные
+	// Коллбеки
+	onClose: () => void
+	onRequestSaved: () => void
 }
 
 const RequestModal: React.FC<RequestModalProps> = ({
@@ -50,25 +48,49 @@ const RequestModal: React.FC<RequestModalProps> = ({
 	// Примечание
 	const [note, setNote] = useState<string>('')
 
+	// Реф для автофокуса
+	const firstInputRef = useRef<HTMLSelectElement>(null)
+
+	// При монтировании/обновлении пропсов
 	useEffect(() => {
 		if (requestId) {
-			// Существующая заявка (редактирование)
+			// Существующая заявка
 			setRequestType(currentRequestType || 'корр1')
 			setProposedDate(currentProposedDate || getTodayStr())
 			setNote(currentNote || '')
-			setReceiver(currentReceiver || approverName) // по умолчанию approver
+			setReceiver(currentReceiver || approverName)
 		} else {
 			// Новая заявка
 			setRequestType('корр1')
 			setProposedDate(getTodayStr())
 			setNote('')
-			// По умолчанию пусть будет "Принимающий"
-			setReceiver(approverName)
+			setReceiver(approverName) // по умолчанию пусть "Принимающий"
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [requestId])
+	}, [
+		requestId,
+		currentRequestType,
+		currentProposedDate,
+		currentNote,
+		currentReceiver,
+		approverName,
+	])
 
-	// Хелпер: сегодняшняя дата в формате 'yyyy-MM-dd'
+	// Фокус на первом элементе
+	useEffect(() => {
+		if (firstInputRef.current) {
+			firstInputRef.current.focus()
+		}
+	}, [])
+
+	// Отключаем скролл фона, пока модалка открыта
+	useEffect(() => {
+		document.body.style.overflow = 'hidden'
+		return () => {
+			document.body.style.overflow = 'auto'
+		}
+	}, [])
+
+	// Хелпер: сегодняшняя дата 'yyyy-MM-dd'
 	const getTodayStr = () => {
 		const d = new Date()
 		const yyyy = d.getFullYear()
@@ -77,6 +99,7 @@ const RequestModal: React.FC<RequestModalProps> = ({
 		return `${yyyy}-${mm}-${dd}`
 	}
 
+	// Создать
 	const handleCreate = async () => {
 		try {
 			const resp = await createWorkRequest({
@@ -99,6 +122,7 @@ const RequestModal: React.FC<RequestModalProps> = ({
 		}
 	}
 
+	// Обновить
 	const handleUpdate = async () => {
 		if (!requestId) return
 		try {
@@ -123,6 +147,7 @@ const RequestModal: React.FC<RequestModalProps> = ({
 		}
 	}
 
+	// Удалить
 	const handleDelete = async () => {
 		if (!requestId) return
 		const conf = window.confirm('Удалить заявку?')
@@ -146,13 +171,28 @@ const RequestModal: React.FC<RequestModalProps> = ({
 	}
 
 	return (
+		// Используем стили для фиксированного позиционирования, чтобы модалка
+		// всегда была по центру и не сдвигала фоновый контент.
 		<div
-			className='modal fade show'
-			style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}
-			tabIndex={-1}
-			role='dialog'
+			className='modal-backdrop-custom'
+			style={{
+				position: 'fixed',
+				top: 0,
+				left: 0,
+				width: '100%',
+				height: '100%',
+				backgroundColor: 'rgba(0,0,0,0.5)',
+				zIndex: 1050,
+				display: 'flex',
+				alignItems: 'center',
+				justifyContent: 'center',
+			}}
 		>
-			<div className='modal-dialog' role='document'>
+			<div
+				className='modal-dialog modal-dialog-centered'
+				role='document'
+				style={{ maxWidth: '600px', width: '100%' }}
+			>
 				<div className='modal-content'>
 					<div className='modal-header'>
 						<h5 className='modal-title'>Заявка</h5>
@@ -164,12 +204,17 @@ const RequestModal: React.FC<RequestModalProps> = ({
 						></button>
 					</div>
 					<div className='modal-body'>
+						{/* Тип запроса */}
 						<div className='mb-3'>
-							<label className='form-label'>Тип запроса</label>
+							<label htmlFor='requestTypeSelect' className='form-label'>
+								Тип запроса
+							</label>
 							<select
+								id='requestTypeSelect'
 								className='form-select'
 								value={requestType}
 								onChange={e => setRequestType(e.target.value)}
+								ref={firstInputRef} // <-- автофокус
 							>
 								<option value='корр1'>корр1</option>
 								<option value='корр2'>корр2</option>
@@ -178,19 +223,27 @@ const RequestModal: React.FC<RequestModalProps> = ({
 							</select>
 						</div>
 
+						{/* Желаемая дата */}
 						<div className='mb-3'>
-							<label className='form-label'>Желаемая дата</label>
+							<label htmlFor='proposedDate' className='form-label'>
+								Желаемая дата
+							</label>
 							<input
 								type='date'
+								id='proposedDate'
 								className='form-control'
 								value={proposedDate}
 								onChange={e => setProposedDate(e.target.value)}
 							/>
 						</div>
 
+						{/* Получатель (контролирующий / принимающий) */}
 						<div className='mb-3'>
-							<label className='form-label'>Получатель</label>
+							<label htmlFor='receiverSelect' className='form-label'>
+								Получатель
+							</label>
 							<select
+								id='receiverSelect'
 								className='form-select'
 								value={receiver}
 								onChange={e => setReceiver(e.target.value)}
@@ -204,17 +257,24 @@ const RequestModal: React.FC<RequestModalProps> = ({
 							</select>
 						</div>
 
+						{/* Примечание */}
 						<div className='mb-3'>
-							<label className='form-label'>Примечание</label>
+							<label htmlFor='requestNote' className='form-label'>
+								Примечание
+							</label>
 							<textarea
+								id='requestNote'
 								className='form-control'
 								rows={3}
 								value={note}
 								onChange={e => setNote(e.target.value)}
-							></textarea>
+							/>
 						</div>
 					</div>
+
 					<div className='modal-footer'>
+						{/* Если requestId отсутствует -> форма создания
+                Если есть requestId -> форма редактирования/удаления */}
 						{!requestId && (
 							<button
 								type='button'

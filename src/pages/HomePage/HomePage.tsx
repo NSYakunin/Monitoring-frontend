@@ -30,16 +30,8 @@ import './HomePage.css'
 interface WorkItemRow extends WorkItemDto {
 	id: string
 	selected: boolean
-
-	// Поля для "pending" заявки от текущего пользователя (если есть)
-	userRequestId?: number
-	userRequestType?: string
-	userRequestDate?: string
-	userRequestNote?: string
-	userReceiver?: string
 }
 
-// Для "подразделения"
 interface DivisionItem {
 	id: number
 	name: string
@@ -94,6 +86,8 @@ const HomePage: React.FC = () => {
 
 	// Для показа/скрытия модалки RequestModal
 	const [showRequestModal, setShowRequestModal] = useState(false)
+
+	// Поля для модалки (как "стейт" окна редактирования заявки):
 	const [modalRequestId, setModalRequestId] = useState<number | undefined>(
 		undefined
 	)
@@ -278,7 +272,7 @@ const HomePage: React.FC = () => {
 			finalSelection = workItems.map(r => r.documentNumber)
 		}
 
-		// Шлём на сервер
+		// Шлём на сервер (пример)
 		const body = {
 			format,
 			selectedItems: finalSelection,
@@ -313,27 +307,25 @@ const HomePage: React.FC = () => {
 	// ------------------------
 	// Открыть модалку "Создание/редактирование заявки"
 	const openRequestModal = (row: WorkItemRow) => {
-		// Если уже есть Pending-заявка (row.userRequestId), то подставим данные
-		// (В вашем случае вы бы хотели на этапе загрузки workItems уже знать, есть ли от меня заявка.
-		// Тут можно расширить DTO, чтобы бэк сразу возвращал userRequestId, userRequestType, и т.д.)
-		// Пока для примера: если (row.executor.includes(userName)), то создаём новую, иначе disabled
-		// Но лучше действительно получить с бэка нужную инфу.
+		// Если пользователь не является исполнителем — не даём создать
 		if (!row.executor.includes(userName)) {
 			alert('Вы не являетесь исполнителем для этой работы.')
 			return
 		}
 
+		// Сохраняем номер документа, контролера, принимающего
 		setModalDocNumber(row.documentNumber)
 		setRowController(row.controller || '')
 		setRowApprover(row.approver || '')
 
-		if (row.userRequestId) {
+		// Если уже есть Pending-заявка от текущего пользователя
+		if (row.userPendingRequestId) {
 			// Существующая заявка
-			setModalRequestId(row.userRequestId)
-			setModalReqType(row.userRequestType || 'корр1')
-			setModalReqDate(row.userRequestDate || '')
-			setModalReqNote(row.userRequestNote || '')
-			setModalReceiver(row.userReceiver || row.approver || '')
+			setModalRequestId(row.userPendingRequestId)
+			setModalReqType(row.userPendingRequestType || 'корр1')
+			setModalReqDate(row.userPendingProposedDate || '')
+			setModalReqNote(row.userPendingRequestNote || '')
+			setModalReceiver(row.userPendingReceiver || row.approver || '')
 		} else {
 			// Новая заявка
 			setModalRequestId(undefined)
@@ -545,7 +537,7 @@ const HomePage: React.FC = () => {
 			</div>
 
 			{/* Таблица (DnD) */}
-			<div className='table-responsive table-container'>
+			<div className='table-container table-responsive'>
 				<table className='table table-bordered table-hover sticky-header-table'>
 					<thead>
 						<tr className='custom-header'>
@@ -559,9 +551,8 @@ const HomePage: React.FC = () => {
 							<th>Корр1</th>
 							<th>Корр2</th>
 							<th>Корр3</th>
-							<th style={{ width: '150px' }}>
+							<th style={{ width: '50px' }}>
 								<div className='d-flex align-items-center justify-content-between'>
-									Выбор
 									<button
 										className='btn btn-sm btn-outline-primary toggle-select-all'
 										onClick={toggleSelectAll}
@@ -585,25 +576,18 @@ const HomePage: React.FC = () => {
 						handle='.drag-handle'
 					>
 						{workItems.map((item, index) => {
-							// Вместо ручной проверки requestType === "факт",
-							// берём готовый highlightCssClass:
-							let rowClass = ''
-							if (item.highlightCssClass) {
-								rowClass = item.highlightCssClass
-							}
+							// Подсветка (если есть highlightCssClass)
+							let rowClass = item.highlightCssClass || ''
 
 							// Если строка выделена чекбоксом
 							if (item.selected) {
-								// можем добавить дополнительный класс
 								rowClass += ' table-selected-row'
 							}
 
 							return (
 								<tr
 									key={item.id}
-									className={
-										item.selected ? rowClass + ' table-selected-row' : rowClass
-									}
+									className={rowClass.trim()}
 									onClick={e => handleRowClick(item.id, e)}
 								>
 									<td className='align-middle'>
