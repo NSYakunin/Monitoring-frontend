@@ -104,6 +104,9 @@ const HomePage: React.FC = () => {
 	// current userName (отправитель)
 	const userName = localStorage.getItem('userName') || ''
 
+	// Добавим стейт для отображения "домашнего" подразделения по названию
+	const [homeDivName, setHomeDivName] = useState<string>('')
+
 	// При загрузке проверяем токен и грузим отделы
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
@@ -141,6 +144,18 @@ const HomePage: React.FC = () => {
 			})
 			.catch(err => console.error(err))
 	}, [navigate])
+
+	// После того как мы узнали наш homeDivId (из localStorage) — загружаем строковое имя подразделения
+	useEffect(() => {
+		const homeDivId = localStorage.getItem('divisionId')
+		if (homeDivId) {
+			getDivisionName(Number(homeDivId))
+				.then(name => setHomeDivName(name))
+				.catch(err =>
+					console.error('Ошибка при получении имени подразделения:', err)
+				)
+		}
+	}, [])
 
 	// При смене selectedDivision -> грузим исполнителей/принимающих
 	useEffect(() => {
@@ -351,14 +366,20 @@ const HomePage: React.FC = () => {
 
 	return (
 		<div className='home-container fade-in'>
-			{/* Заголовок */}
+			{/* Заголовок с названием подразделения и текущим пользователем */}
 			<div className='d-flex justify-content-between align-items-center mb-4 page-header-block'>
-				<h3 className='page-title'>Главная страница</h3>
+				<div className='d-flex flex-column'>
+					<h3 className='page-title'>Подразделение: {homeDivName}</h3>
+					<small className='text-muted'>Текущий пользователь: {userName}</small>
+				</div>
+
 				<div className='header-buttons'>
-					<button className='btn btn-info me-2' onClick={handleMyRequests}>
+					{/* Кнопка "Входящие заявки" (менее яркая, тёмная) */}
+					<button className='btn btn-secondary me-2' onClick={handleMyRequests}>
 						<i className='bi bi-file-earmark-text me-1'></i>Входящие заявки
 					</button>
-					<button className='btn btn-danger' onClick={handleLogout}>
+					{/* Кнопка "Выход" (также тёмная) */}
+					<button className='btn btn-dark' onClick={handleLogout}>
 						<i className='bi bi-box-arrow-right me-1'></i>Выход
 					</button>
 				</div>
@@ -465,9 +486,10 @@ const HomePage: React.FC = () => {
 					</div>
 
 					<div className='mt-2'>
+						{/* Кнопка "Обновить" — тоже в более нейтральных тонах */}
 						<button
 							type='button'
-							className='btn btn-sm btn-outline-info refresh-btn'
+							className='btn btn-outline-secondary refresh-btn'
 							onClick={handleRefreshCache}
 						>
 							Обновить
@@ -476,7 +498,7 @@ const HomePage: React.FC = () => {
 				</form>
 			</div>
 
-			{/* Уведомления: теперь строками */}
+			{/* Уведомления */}
 			<div className='mb-3 notifications-block'>
 				<h5 className='mb-2'>Уведомления</h5>
 				{notifications.length === 0 ? (

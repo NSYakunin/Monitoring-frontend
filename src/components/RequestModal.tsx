@@ -5,6 +5,8 @@ import {
 	deleteWorkRequest,
 } from '../api/myRequestsApi'
 
+import './RequestModal.css'
+
 // Интерфейс пропсов
 interface RequestModalProps {
 	// Если undefined, значит создаём новую заявку,
@@ -82,13 +84,18 @@ const RequestModal: React.FC<RequestModalProps> = ({
 		}
 	}, [])
 
-	// Отключаем скролл фона, пока модалка открыта
+	// Добавляем возможность закрыть окно по нажатию ESC
 	useEffect(() => {
-		document.body.style.overflow = 'hidden'
-		return () => {
-			document.body.style.overflow = 'auto'
+		const handleEsc = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') {
+				onClose()
+			}
 		}
-	}, [])
+		window.addEventListener('keydown', handleEsc)
+		return () => {
+			window.removeEventListener('keydown', handleEsc)
+		}
+	}, [onClose])
 
 	// Хелпер: сегодняшняя дата 'yyyy-MM-dd'
 	const getTodayStr = () => {
@@ -171,28 +178,9 @@ const RequestModal: React.FC<RequestModalProps> = ({
 	}
 
 	return (
-		// Используем стили для фиксированного позиционирования, чтобы модалка
-		// всегда была по центру и не сдвигала фоновый контент.
-		<div
-			className='modal-backdrop-custom'
-			style={{
-				position: 'fixed',
-				top: 0,
-				left: 0,
-				width: '100%',
-				height: '100%',
-				backgroundColor: 'rgba(0,0,0,0.5)',
-				zIndex: 1050,
-				display: 'flex',
-				alignItems: 'center',
-				justifyContent: 'center',
-			}}
-		>
-			<div
-				className='modal-dialog modal-dialog-centered'
-				role='document'
-				style={{ maxWidth: '600px', width: '100%' }}
-			>
+		/* Убираем класс "modal-dialog-centered", чтобы окно не скроллилось и не центрировалось автоматически */
+		<div className='modal-backdrop-custom'>
+			<div className='modal-dialog'>
 				<div className='modal-content'>
 					<div className='modal-header'>
 						<h5 className='modal-title'>Заявка</h5>
