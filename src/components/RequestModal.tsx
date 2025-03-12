@@ -4,7 +4,6 @@ import {
 	updateWorkRequest,
 	deleteWorkRequest,
 } from '../api/myRequestsApi'
-
 import './RequestModal.css'
 
 // Интерфейс пропсов
@@ -50,6 +49,9 @@ const RequestModal: React.FC<RequestModalProps> = ({
 	// Примечание
 	const [note, setNote] = useState<string>('')
 
+	// Состояние для анимации закрытия
+	const [isClosing, setIsClosing] = useState(false)
+
 	// Реф для автофокуса
 	const firstInputRef = useRef<HTMLSelectElement>(null)
 
@@ -88,14 +90,14 @@ const RequestModal: React.FC<RequestModalProps> = ({
 	useEffect(() => {
 		const handleEsc = (e: KeyboardEvent) => {
 			if (e.key === 'Escape') {
-				onClose()
+				triggerClose()
 			}
 		}
 		window.addEventListener('keydown', handleEsc)
 		return () => {
 			window.removeEventListener('keydown', handleEsc)
 		}
-	}, [onClose])
+	}, [])
 
 	// Хелпер: сегодняшняя дата 'yyyy-MM-dd'
 	const getTodayStr = () => {
@@ -105,6 +107,22 @@ const RequestModal: React.FC<RequestModalProps> = ({
 		const dd = String(d.getDate()).padStart(2, '0')
 		return `${yyyy}-${mm}-${dd}`
 	}
+
+	// Закрытие с анимацией (fade-out)
+	const triggerClose = () => {
+		setIsClosing(true)
+	}
+
+	// После завершения анимации закрытия - вызываем onClose
+	useEffect(() => {
+		if (!isClosing) return
+
+		const timer = setTimeout(() => {
+			onClose()
+		}, 250) // время анимации fade-out (см. CSS)
+
+		return () => clearTimeout(timer)
+	}, [isClosing, onClose])
 
 	// Создать
 	const handleCreate = async () => {
@@ -122,7 +140,7 @@ const RequestModal: React.FC<RequestModalProps> = ({
 			}
 			alert('Заявка отправлена! requestId=' + resp.requestId)
 			onRequestSaved()
-			onClose()
+			triggerClose()
 		} catch (err: any) {
 			console.error(err)
 			alert('Сетевая ошибка при создании заявки')
@@ -147,7 +165,7 @@ const RequestModal: React.FC<RequestModalProps> = ({
 			}
 			alert('Заявка обновлена!')
 			onRequestSaved()
-			onClose()
+			triggerClose()
 		} catch (ex: any) {
 			console.error(ex)
 			alert('Сетевая ошибка при обновлении заявки')
@@ -170,7 +188,7 @@ const RequestModal: React.FC<RequestModalProps> = ({
 			}
 			alert('Заявка удалена!')
 			onRequestSaved()
-			onClose()
+			triggerClose()
 		} catch (ex: any) {
 			console.error(ex)
 			alert('Сетевая ошибка при удалении заявки')
@@ -178,20 +196,30 @@ const RequestModal: React.FC<RequestModalProps> = ({
 	}
 
 	return (
-		/* Убираем класс "modal-dialog-centered", чтобы окно не скроллилось и не центрировалось автоматически */
-		<div className='modal-backdrop-custom'>
-			<div className='modal-dialog'>
-				<div className='modal-content'>
-					<div className='modal-header'>
-						<h5 className='modal-title'>Заявка</h5>
+		/* 
+		  Убираем класс "modal-dialog-centered", чтобы окно не скроллилось 
+		  и не центрировалось автоматически; вместо этого используем
+		  кастомные стили для позиционирования и анимаций.
+		*/
+		<div
+			className={`modal-backdrop-custom ${
+				isClosing ? 'modal-closing' : 'modal-opening'
+			}`}
+		>
+			<div className='modal-dialog-custom'>
+				<div className='modal-content-custom'>
+					<div className='modal-header-custom'>
+						<h5 className='modal-title-custom'>Заявка</h5>
 						<button
 							type='button'
-							className='btn-close'
-							onClick={onClose}
+							className='btn-close-custom'
+							onClick={triggerClose}
 							aria-label='Закрыть'
-						></button>
+						>
+							&times;
+						</button>
 					</div>
-					<div className='modal-body'>
+					<div className='modal-body-custom'>
 						{/* Тип запроса */}
 						<div className='mb-3'>
 							<label htmlFor='requestTypeSelect' className='form-label'>
@@ -260,9 +288,9 @@ const RequestModal: React.FC<RequestModalProps> = ({
 						</div>
 					</div>
 
-					<div className='modal-footer'>
-						{/* Если requestId отсутствует -> форма создания
-                Если есть requestId -> форма редактирования/удаления */}
+					<div className='modal-footer-custom'>
+						{/* Если requestId отсутствует -> форма создания.
+						    Если есть requestId -> форма редактирования/удаления */}
 						{!requestId && (
 							<button
 								type='button'
@@ -293,7 +321,7 @@ const RequestModal: React.FC<RequestModalProps> = ({
 						<button
 							type='button'
 							className='btn btn-secondary'
-							onClick={onClose}
+							onClick={triggerClose}
 						>
 							Закрыть
 						</button>

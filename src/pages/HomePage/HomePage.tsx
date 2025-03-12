@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
-// Импорт api-функций
+// Импорт api-функций (пример, меняйте пути на нужные)
 import {
 	getAllowedDivisions,
 	getExecutors,
@@ -22,11 +22,8 @@ import {
 import { ReactSortable } from 'react-sortablejs'
 
 // Модальное окно заявки
-import RequestModal from '../../components/RequestModal' // <-- Вынесено в другой файл
+import RequestModal from '../../components/RequestModal'
 
-import './HomePage.css'
-
-// Локальный интерфейс для строки работы — добавляем поле id (для DnD) и selected
 interface WorkItemRow extends WorkItemDto {
 	id: string
 	selected: boolean
@@ -37,7 +34,6 @@ interface DivisionItem {
 	name: string
 }
 
-// Фильтры
 interface FilterState {
 	selectedDivision: number
 	startDate: string
@@ -49,6 +45,8 @@ interface FilterState {
 
 const HomePage: React.FC = () => {
 	const navigate = useNavigate()
+
+	// ----- Состояния -----
 
 	// Список отделов
 	const [allowedDivisions, setAllowedDivisions] = useState<DivisionItem[]>([])
@@ -63,7 +61,7 @@ const HomePage: React.FC = () => {
 	// Список работ (после подгрузки преобразуем в массив WorkItemRow)
 	const [workItems, setWorkItems] = useState<WorkItemRow[]>([])
 
-	// Фильтры (Пункт №5: по умолчанию startDate=2014-01-01, endDate = последний день текущего месяца)
+	// Фильтры
 	const getDefaultEndDate = () => {
 		const now = new Date()
 		const year = now.getFullYear()
@@ -87,7 +85,7 @@ const HomePage: React.FC = () => {
 	// Для показа/скрытия модалки RequestModal
 	const [showRequestModal, setShowRequestModal] = useState(false)
 
-	// Поля для модалки (как "стейт" окна редактирования заявки):
+	// Поля для модалки (заявки)
 	const [modalRequestId, setModalRequestId] = useState<number | undefined>(
 		undefined
 	)
@@ -97,17 +95,19 @@ const HomePage: React.FC = () => {
 	const [modalReqNote, setModalReqNote] = useState<string>('')
 	const [modalReceiver, setModalReceiver] = useState<string>('')
 
-	// Контролирующий и принимающий для строки (передадим в модалку)
+	// Контролирующий и принимающий для строки (для модалки)
 	const [rowController, setRowController] = useState<string>('')
 	const [rowApprover, setRowApprover] = useState<string>('')
 
-	// current userName (отправитель)
+	// Текущий пользователь
 	const userName = localStorage.getItem('userName') || ''
 
-	// Добавим стейт для отображения "домашнего" подразделения по названию
-	const [homeDivName, setHomeDivName] = useState<string>('')
+	// Название "домашнего" подразделения
+	const [homeDivName, setHomeDivName] = useState<string>('Неизвестный отдел')
 
-	// При загрузке проверяем токен и грузим отделы
+	// ----- Хуки загрузки данных -----
+
+	// При первом рендере проверяем токен, грузим список отделов
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
 		if (!token) {
@@ -119,7 +119,7 @@ const HomePage: React.FC = () => {
 			.then(async divIds => {
 				if (divIds.length === 0) return
 
-				// Загружаем "названия" отделов
+				// Загружаем названия отделов
 				const divisionsWithNames: DivisionItem[] = []
 				for (let d of divIds) {
 					const name = await getDivisionName(d)
@@ -134,7 +134,7 @@ const HomePage: React.FC = () => {
 					divIdFromStorage = parseInt(storedDivId, 10)
 				}
 
-				// Если он есть в списке – берем, иначе берем первый
+				// Если он есть в списке – берём, иначе – первый
 				let defaultDiv = divisionsWithNames[0].id
 				if (divisionsWithNames.some(x => x.id === divIdFromStorage)) {
 					defaultDiv = divIdFromStorage
@@ -145,7 +145,7 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error(err))
 	}, [navigate])
 
-	// После того как мы узнали наш homeDivId (из localStorage) — загружаем строковое имя подразделения
+	// Загружаем имя "домашнего" подразделения
 	useEffect(() => {
 		const homeDivId = localStorage.getItem('divisionId')
 		if (homeDivId) {
@@ -178,7 +178,6 @@ const HomePage: React.FC = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [filters])
 
-	// Загрузка уведомлений
 	const loadNotifications = (divisionId: number) => {
 		getActiveNotifications(divisionId)
 			.then(data => {
@@ -187,7 +186,6 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error('Ошибка уведомлений:', err))
 	}
 
-	// Загрузка workItems
 	const loadWorkItems = () => {
 		getFilteredWorkItems(
 			filters.startDate,
@@ -198,14 +196,11 @@ const HomePage: React.FC = () => {
 			filters.selectedDivision
 		)
 			.then(data => {
-				const rows: WorkItemRow[] = data.map((w, index) => {
-					return {
-						...w,
-						id: w.documentNumber || 'row_' + index,
-						selected: false,
-					}
-				})
-
+				const rows: WorkItemRow[] = data.map((w, index) => ({
+					...w,
+					id: w.documentNumber || 'row_' + index,
+					selected: false,
+				}))
 				setWorkItems(rows)
 			})
 			.catch(err => {
@@ -213,7 +208,9 @@ const HomePage: React.FC = () => {
 			})
 	}
 
-	// Обработчики для фильтров
+	// ----- Обработчики -----
+
+	// Изменение полей фильтра
 	const handleChange = (
 		e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
 	) => {
@@ -235,12 +232,12 @@ const HomePage: React.FC = () => {
 		navigate('/login')
 	}
 
-	// "Мои заявки"
+	// "Входящие заявки"
 	const handleMyRequests = () => {
 		navigate('/my-requests')
 	}
 
-	// Обновить (очистить кэш)
+	// "Обновить" (очистить кэш)
 	const handleRefreshCache = () => {
 		clearWorkItemsCache(filters.selectedDivision)
 			.then(() => loadWorkItems())
@@ -262,7 +259,7 @@ const HomePage: React.FC = () => {
 		setWorkItems(prev => prev.map(row => ({ ...row, selected: anyUnchecked })))
 	}
 
-	// Клик по строке (не на кнопке)
+	// Клик по строке
 	const handleRowClick = (rowId: string, e: React.MouseEvent) => {
 		const tag = (e.target as HTMLElement).tagName.toLowerCase()
 		if (tag === 'button' || tag === 'input') return
@@ -276,18 +273,16 @@ const HomePage: React.FC = () => {
 
 	// Экспорт
 	const handleExport = (format: string) => {
-		// Собираем выбранные docNumber'ы в порядке
+		// Собираем выбранные docNumber'ы
 		const selected = workItems
 			.filter(r => r.selected)
 			.map(r => r.documentNumber)
-
 		let finalSelection = selected
 		if (selected.length === 0) {
 			// Если ничего не выбрано — берём все
 			finalSelection = workItems.map(r => r.documentNumber)
 		}
 
-		// Шлём на сервер (пример)
 		const body = {
 			format,
 			selectedItems: finalSelection,
@@ -319,21 +314,17 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error('Ошибка при экспорте:', err))
 	}
 
-	// ------------------------
-	// Открыть модалку "Создание/редактирование заявки"
+	// ----- Работа с модалкой "Заявка" -----
 	const openRequestModal = (row: WorkItemRow) => {
-		// Если пользователь не является исполнителем — не даём создать
 		if (!row.executor.includes(userName)) {
 			alert('Вы не являетесь исполнителем для этой работы.')
 			return
 		}
 
-		// Сохраняем номер документа, контролера, принимающего
 		setModalDocNumber(row.documentNumber)
 		setRowController(row.controller || '')
 		setRowApprover(row.approver || '')
 
-		// Если уже есть Pending-заявка от текущего пользователя
 		if (row.userPendingRequestId) {
 			// Существующая заявка
 			setModalRequestId(row.userPendingRequestId)
@@ -357,307 +348,360 @@ const HomePage: React.FC = () => {
 		setShowRequestModal(false)
 	}
 
-	// Когда заявка успешно сохранена/обновлена
 	const handleRequestSaved = () => {
 		closeRequestModal()
-		// Перезагрузить таблицу
 		loadWorkItems()
 	}
 
+	// ----- Разметка -----
 	return (
-		<div className='home-container fade-in'>
-			{/* Заголовок с названием подразделения и текущим пользователем */}
-			<div className='d-flex justify-content-between align-items-center mb-4 page-header-block'>
-				<div className='d-flex flex-column'>
-					<h3 className='page-title'>Подразделение: {homeDivName}</h3>
-					<small className='text-muted'>Текущий пользователь: {userName}</small>
-				</div>
-
-				<div className='header-buttons'>
-					{/* Кнопка "Входящие заявки" (менее яркая, тёмная) */}
-					<button className='btn btn-secondary me-2' onClick={handleMyRequests}>
-						<i className='bi bi-file-earmark-text me-1'></i>Входящие заявки
-					</button>
-					{/* Кнопка "Выход" (также тёмная) */}
-					<button className='btn btn-dark' onClick={handleLogout}>
-						<i className='bi bi-box-arrow-right me-1'></i>Выход
-					</button>
-				</div>
-			</div>
-
-			{/* Блок фильтров */}
-			<div className='filters-container mb-4'>
-				<form className='d-flex flex-wrap align-items-end gap-3'>
-					<div className='filter-block'>
-						<label htmlFor='startDate' className='form-label'>
-							C даты:
-						</label>
-						<input
-							type='date'
-							id='startDate'
-							name='startDate'
-							value={filters.startDate}
-							onChange={handleChange}
-							className='form-control'
-						/>
-					</div>
-					<div className='filter-block'>
-						<label htmlFor='endDate' className='form-label'>
-							По дату:
-						</label>
-						<input
-							type='date'
-							id='endDate'
-							name='endDate'
-							value={filters.endDate}
-							onChange={handleChange}
-							className='form-control'
-						/>
-					</div>
-					<div className='filter-block'>
-						<label htmlFor='selectedDivision' className='form-label'>
-							Подразделение:
-						</label>
-						<select
-							id='selectedDivision'
-							name='selectedDivision'
-							value={String(filters.selectedDivision)}
-							onChange={handleDivisionChange}
-							className='form-select'
-						>
-							{allowedDivisions.map(div => (
-								<option key={div.id} value={div.id}>
-									{div.name}
-								</option>
-							))}
-						</select>
-					</div>
-					<div className='filter-block'>
-						<label htmlFor='executor' className='form-label'>
-							Исполнитель:
-						</label>
-						<select
-							id='executor'
-							name='executor'
-							value={filters.executor}
-							onChange={handleChange}
-							className='form-select'
-						>
-							<option value=''>Все исполнители</option>
-							{executorsList.map(e => (
-								<option key={e} value={e}>
-									{e}
-								</option>
-							))}
-						</select>
-					</div>
-					<div className='filter-block'>
-						<label htmlFor='approver' className='form-label'>
-							Принимающий:
-						</label>
-						<select
-							id='approver'
-							name='approver'
-							value={filters.approver}
-							onChange={handleChange}
-							className='form-select'
-						>
-							<option value=''>Все принимающие</option>
-							{approversList.map(a => (
-								<option key={a} value={a}>
-									{a}
-								</option>
-							))}
-						</select>
-					</div>
-					<div className='filter-block'>
-						<label htmlFor='search' className='form-label'>
-							Поиск:
-						</label>
-						<input
-							type='text'
-							id='search'
-							name='search'
-							value={filters.search}
-							onChange={handleChange}
-							className='form-control'
-							placeholder='Поиск...'
-						/>
-					</div>
-
-					<div className='mt-2'>
-						{/* Кнопка "Обновить" — тоже в более нейтральных тонах */}
-						<button
-							type='button'
-							className='btn btn-outline-secondary refresh-btn'
-							onClick={handleRefreshCache}
-						>
-							Обновить
-						</button>
-					</div>
-				</form>
-			</div>
-
-			{/* Уведомления */}
-			<div className='mb-3 notifications-block'>
-				<h5 className='mb-2'>Уведомления</h5>
-				{notifications.length === 0 ? (
-					<div className='text-muted'>Нет активных уведомлений.</div>
-				) : (
-					<div className='notifications-list'>
-						{notifications.map(note => (
-							<div key={note.id} className='notification-row'>
-								<strong>{note.title}</strong>
-								<span className='ms-2 text-muted'>
-									[{note.userName} |{' '}
-									{new Date(note.dateSetInSystem).toLocaleDateString()}]
-								</span>
+		<div
+			className='home-container'
+			style={{ animation: 'fadeInUp 0.5s ease forwards', opacity: 0 }}
+		>
+			{/* ШАПКА: подразделение + пользователь + Фильтры + Кнопки "Обновить" и "Выход" */}
+			<div className='container-fluid mt-4'>
+				<div className='row mb-4'>
+					<div className='col-12'>
+						<div className='d-flex flex-wrap align-items-center justify-content-between bg-light p-3 rounded header-top-block'>
+							{/* Левая часть: подразделение, пользователь */}
+							<div>
+								<h5 className='mb-0'>Подразделение: {homeDivName}</h5>
+								<p className='text-muted mb-0'>
+									Текущий пользователь: {userName}
+								</p>
 							</div>
-						))}
-					</div>
-				)}
-			</div>
 
-			{/* Кнопки экспорта */}
-			<div className='d-flex justify-content-end mb-3 export-container'>
-				<div className='btn-group dropup'>
-					<button
-						type='button'
-						className='btn btn-export dropdown-toggle'
-						data-bs-toggle='dropdown'
-						aria-expanded='false'
-					>
-						Сдаточный чек
-					</button>
-					<ul className='dropdown-menu'>
-						<li>
-							<button
-								className='dropdown-item'
-								onClick={() => handleExport('pdf')}
-							>
-								PDF
-							</button>
-						</li>
-						<li>
-							<button
-								className='dropdown-item'
-								onClick={() => handleExport('excel')}
-							>
-								Excel
-							</button>
-						</li>
-						<li>
-							<button
-								className='dropdown-item'
-								onClick={() => handleExport('word')}
-							>
-								Word
-							</button>
-						</li>
-					</ul>
-				</div>
-			</div>
+							{/* Форма фильтров + кнопки "Обновить" и "Выход" */}
+							<form className='d-flex flex-wrap align-items-end gap-2 filterForm'>
+								{/* Фильтр по датам */}
+								<div className='d-flex flex-column'>
+									<label htmlFor='startDate' className='form-label'>
+										C даты:
+									</label>
+									<input
+										type='date'
+										className='form-control'
+										id='startDate'
+										name='startDate'
+										value={filters.startDate}
+										onChange={handleChange}
+									/>
+								</div>
+								<div className='d-flex flex-column'>
+									<label htmlFor='endDate' className='form-label'>
+										По дату:
+									</label>
+									<input
+										type='date'
+										className='form-control'
+										id='endDate'
+										name='endDate'
+										value={filters.endDate}
+										onChange={handleChange}
+									/>
+								</div>
 
-			{/* Таблица (DnD) */}
-			<div className='table-container table-responsive'>
-				<table className='table table-bordered table-hover sticky-header-table'>
-					<thead>
-						<tr className='custom-header'>
-							<th style={{ width: '40px' }}>№</th>
-							<th>Документ</th>
-							<th>Работа</th>
-							<th>Исполнители</th>
-							<th>Контроллер</th>
-							<th>Принимающий</th>
-							<th>План</th>
-							<th>Корр1</th>
-							<th>Корр2</th>
-							<th>Корр3</th>
-							<th style={{ width: '50px' }}>
-								<div className='d-flex align-items-center justify-content-between'>
-									<button
-										className='btn btn-sm btn-outline-primary toggle-select-all'
-										onClick={toggleSelectAll}
-										title={
-											workItems.every(r => r.selected)
-												? 'Снять все'
-												: 'Выделить все'
-										}
+								{/* Подразделение */}
+								<div className='d-flex flex-column'>
+									<label htmlFor='selectedDivision' className='form-label'>
+										Подразделение:
+									</label>
+									<select
+										id='selectedDivision'
+										className='form-select'
+										value={String(filters.selectedDivision)}
+										onChange={handleDivisionChange}
 									>
-										{workItems.every(r => r.selected) ? 'Снять' : 'Все'}
+										{allowedDivisions.map(div => (
+											<option key={div.id} value={div.id}>
+												{div.name}
+											</option>
+										))}
+									</select>
+								</div>
+
+								{/* Исполнитель */}
+								<div className='d-flex flex-column'>
+									<label htmlFor='executor' className='form-label'>
+										Исполнитель:
+									</label>
+									<select
+										id='executor'
+										name='executor'
+										value={filters.executor}
+										onChange={handleChange}
+										className='form-select'
+									>
+										<option value=''>Все исполнители</option>
+										{executorsList.map(e => (
+											<option key={e} value={e}>
+												{e}
+											</option>
+										))}
+									</select>
+								</div>
+
+								{/* Принимающий */}
+								<div className='d-flex flex-column'>
+									<label htmlFor='approver' className='form-label'>
+										Принимающий:
+									</label>
+									<select
+										id='approver'
+										name='approver'
+										value={filters.approver}
+										onChange={handleChange}
+										className='form-select'
+									>
+										<option value=''>Все принимающие</option>
+										{approversList.map(a => (
+											<option key={a} value={a}>
+												{a}
+											</option>
+										))}
+									</select>
+								</div>
+
+								{/* Поиск */}
+								<div className='d-flex flex-column'>
+									<label htmlFor='search' className='form-label'>
+										Поиск:
+									</label>
+									<input
+										type='text'
+										className='form-control'
+										id='search'
+										name='search'
+										value={filters.search}
+										placeholder='Поиск...'
+										onChange={handleChange}
+									/>
+								</div>
+
+								{/* Кнопки справа */}
+								<div className='d-flex justify-content-end gap-3 mb-4'>
+									<button
+										type='button'
+										className='btn btn-sm btn-outline-info'
+										onClick={handleRefreshCache}
+									>
+										Обновить
+									</button>
+
+									<button
+										type='button'
+										className='btn btn-logout'
+										onClick={handleLogout}
+									>
+										Выход
 									</button>
 								</div>
-							</th>
-						</tr>
-					</thead>
-					<ReactSortable
-						tag='tbody'
-						list={workItems}
-						setList={handleSort}
-						animation={150}
-						handle='.drag-handle'
-					>
-						{workItems.map((item, index) => {
-							// Подсветка (если есть highlightCssClass)
-							let rowClass = item.highlightCssClass || ''
+							</form>
+						</div>
+					</div>
+				</div>
 
-							// Если строка выделена чекбоксом
-							if (item.selected) {
-								rowClass += ' table-selected-row'
-							}
+				{/* ВТОРОЙ РЯД: Уведомления + Сдаточный чек + Входящие заявки */}
+				<div className='row mb-3 gx-3' style={{ minHeight: '50px' }}>
+					{/* Левая колонка: уведомления */}
+					<div className='col d-flex flex-column'>
+						<div
+							className='card shadow-sm flex-fill'
+							style={{ minWidth: '300px' }}
+						>
+							<div className='card-header bg-warning'>
+								<h6 className='mb-0' style={{ fontSize: '0.95rem' }}>
+									Уведомления
+								</h6>
+							</div>
+							<div className='card-body p-2' style={{ fontSize: '0.85rem' }}>
+								{notifications.length === 0 ? (
+									<p className='text-muted mb-0'>Нет активных уведомлений.</p>
+								) : (
+									<table
+										className='table table-sm table-bordered table-hover align-middle mb-0'
+										style={{ fontSize: '0.85rem' }}
+									>
+										<thead className='table-secondary'>
+											<tr>
+												<th>Заголовок</th>
+												<th style={{ width: '100px' }}>Кому</th>
+												<th style={{ width: '90px' }}>Дата</th>
+											</tr>
+										</thead>
+										<tbody>
+											{notifications.map(note => (
+												<tr key={note.id}>
+													<td>{note.title}</td>
+													<td>{note.userName}</td>
+													<td>
+														{new Date(
+															note.dateSetInSystem
+														).toLocaleDateString()}
+													</td>
+												</tr>
+											))}
+										</tbody>
+									</table>
+								)}
+							</div>
+						</div>
+					</div>
 
-							return (
-								<tr
-									key={item.id}
-									className={rowClass.trim()}
-									onClick={e => handleRowClick(item.id, e)}
+					{/* Правая колонка: Сдаточный чек + Входящие заявки */}
+					<div className='col-auto d-flex flex-column justify-content-end'>
+						{/* Кнопка "Сдаточный чек" (dropup) */}
+						<div className='d-flex justify-content-end mb-3'>
+							<div className='btn-group dropup'>
+								<button
+									type='button'
+									className='btn btn-pdf dropdown-toggle'
+									data-bs-toggle='dropdown'
+									aria-expanded='false'
 								>
-									<td className='align-middle'>
-										<div className='d-flex align-items-center gap-2'>
-											<span>{index + 1}</span>
-											<span className='drag-handle' title='Перетащите строку'>
-												<i className='bi bi-grip-vertical'></i>
-											</span>
-										</div>
-									</td>
-									<td>{item.documentName}</td>
-									<td>{item.workName}</td>
-									<td>
-										{item.executor?.split(',').map((ex, i) => (
-											<div key={i}>{ex.trim()}</div>
-										))}
-									</td>
-									<td>{item.controller}</td>
-									<td>{item.approver}</td>
-									<td>{item.planDate}</td>
-									<td>{item.korrect1}</td>
-									<td>{item.korrect2}</td>
-									<td>{item.korrect3}</td>
-									<td>
-										<input
-											type='checkbox'
-											checked={item.selected}
-											onChange={() => toggleRowSelection(item.id)}
-										/>
+									Сдаточный чек
+								</button>
+								<ul className='dropdown-menu'>
+									<li>
 										<button
-											type='button'
-											className='btn btn-sm btn-outline-secondary ms-2'
-											onClick={e => {
-												e.stopPropagation()
-												openRequestModal(item)
-											}}
+											className='dropdown-item'
+											onClick={() => handleExport('pdf')}
 										>
-											📝
+											PDF
 										</button>
-									</td>
-								</tr>
-							)
-						})}
-					</ReactSortable>
-				</table>
+									</li>
+									<li>
+										<button
+											className='dropdown-item'
+											onClick={() => handleExport('excel')}
+										>
+											Excel
+										</button>
+									</li>
+									<li>
+										<button
+											className='dropdown-item'
+											onClick={() => handleExport('word')}
+										>
+											Word
+										</button>
+									</li>
+								</ul>
+							</div>
+						</div>
+
+						{/* Кнопка "Входящие заявки" */}
+						<button
+							className='btn btn-myrequests-none'
+							onClick={handleMyRequests}
+						>
+							Входящие заявки
+						</button>
+					</div>
+				</div>
+
+				{/* ТАБЛИЦА */}
+				<div className='row mb-4'>
+					<div className='col-12'>
+						<div className='table-container table-responsive'>
+							<table className='table table-bordered table-hover sticky-header-table'>
+								<thead>
+									<tr className='custom-header'>
+										<th style={{ width: '40px' }}>№</th>
+										<th>Наименование документа</th>
+										<th>Наименование работы</th>
+										<th>Исполнители</th>
+										<th>Контролирующий</th>
+										<th>Принимающий</th>
+										<th>План</th>
+										<th>Корр1</th>
+										<th>Корр2</th>
+										<th>Корр3</th>
+										<th style={{ width: '60px' }}>
+											<div className='d-flex align-items-center justify-content-between'>
+												<span
+													className='toggle-all-btn'
+													title='Выделить/снять все'
+													onClick={toggleSelectAll}
+												>
+													📌
+												</span>
+											</div>
+										</th>
+									</tr>
+								</thead>
+								<ReactSortable
+									tag='tbody'
+									list={workItems}
+									setList={handleSort}
+									animation={150}
+									handle='.drag-handle'
+								>
+									{workItems.map((item, index) => {
+										let rowClass = item.highlightCssClass || ''
+										if (item.selected) {
+											rowClass += ' table-selected-row'
+										}
+
+										return (
+											<tr
+												key={item.id}
+												className={rowClass.trim()}
+												onClick={e => handleRowClick(item.id, e)}
+											>
+												<td className='align-middle'>
+													<div className='d-flex align-items-center gap-2'>
+														<span>{index + 1}</span>
+														<span
+															className='drag-handle'
+															title='Перетащите строку'
+														>
+															<i className='bi bi-grip-vertical'></i>
+														</span>
+													</div>
+												</td>
+												<td>{item.documentName}</td>
+												<td>{item.workName}</td>
+												<td>
+													{item.executor?.split(',').map((ex, i) => (
+														<div key={i}>{ex.trim()}</div>
+													))}
+												</td>
+												<td>{item.controller}</td>
+												<td>{item.approver}</td>
+												<td>{item.planDate}</td>
+												<td>{item.korrect1}</td>
+												<td>{item.korrect2}</td>
+												<td>{item.korrect3}</td>
+												<td>
+													<input
+														type='checkbox'
+														checked={item.selected}
+														onChange={() => toggleRowSelection(item.id)}
+													/>
+													<button
+														type='button'
+														className='btn btn-sm btn-outline-secondary ms-2'
+														onClick={e => {
+															e.stopPropagation()
+															openRequestModal(item)
+														}}
+													>
+														📝
+													</button>
+												</td>
+											</tr>
+										)
+									})}
+								</ReactSortable>
+							</table>
+						</div>
+					</div>
+				</div>
 			</div>
 
-			{/* Модалка RequestModal (показываем при showRequestModal===true) */}
+			{/* Модалка RequestModal */}
 			{showRequestModal && (
 				<RequestModal
 					requestId={modalRequestId}
@@ -673,6 +717,175 @@ const HomePage: React.FC = () => {
 					onRequestSaved={handleRequestSaved}
 				/>
 			)}
+
+			{/* ---- Стили (можно вынести в .css) ---- */}
+			<style>{`
+        /* Анимация появления */
+        @keyframes fadeInUp {
+          0% {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        /* Общие */
+        .header-top-block {
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        }
+        .filterForm .form-label {
+          font-weight: 500;
+        }
+        .btn-logout {
+          border: 2px solid #dc3545;
+          color: #dc3545;
+          background: transparent;
+          padding: 6px 12px;
+          border-radius: 8px;
+          transition: all 0.4s ease;
+          position: relative;
+        }
+        .btn-logout:hover {
+          background: rgba(220, 53, 69, 0.9);
+          color: white !important;
+          border-color: transparent;
+          box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
+        }
+
+        /* Кнопка "Сдаточный чек" (btn-pdf) */
+        .btn-pdf {
+          background: linear-gradient(145deg, #2c3e50, #34495e);
+          color: white !important;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 8px;
+          transition: all 0.3s ease;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+          position: relative;
+          overflow: hidden;
+        }
+        .btn-pdf:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+          background: linear-gradient(145deg, #34495e, #2c3e50);
+        }
+
+        /* Кнопка "Входящие заявки" */
+        .btn-myrequests-none {
+          display: inline-block;
+          text-align: center;
+          padding: 10px 20px;
+          border-radius: 8px;
+          font-weight: 500;
+          transition: all 0.3s ease;
+          border: none;
+          background: #6c757d;
+          color: #f8f9fa;
+        }
+        .btn-myrequests-none:hover {
+          background: #5a6268;
+          color: #ffffff;
+          transform: translateY(-2px);
+          box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+        }
+
+        /* Таблица c "липким" заголовком */
+        .table-container {
+          background: #fff;
+          border-radius: 12px;
+          padding: 0.5rem;
+          box-shadow: 0 0 20px rgba(85, 209, 47, 0.1);
+        }
+        .sticky-header-table {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0;
+        }
+        .sticky-header-table thead th {
+          position: sticky;
+          top: 0;
+          z-index: 50;
+        }
+        .custom-header th {
+          background: linear-gradient(145deg, #a7c3df, #17518a);
+          color: #fff;
+          font-weight: 500;
+          padding: 10px;
+          position: relative;
+          border: none;
+          transition: all 0.3s ease;
+        }
+        .custom-header th:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+        }
+        .custom-header th:not(:last-child)::after {
+          content: '';
+          position: absolute;
+          right: 0;
+          top: 50%;
+          transform: translateY(-50%);
+          height: 60%;
+          width: 1px;
+          background: rgba(255, 255, 255, 0.1);
+        }
+
+        .sticky-header-table tbody tr {
+          background: #fff;
+          transition: all 0.3s;
+          position: relative;
+        }
+        .sticky-header-table tbody tr:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+          z-index: 2;
+        }
+        .sticky-header-table tbody td {
+          padding: 12px;
+          vertical-align: middle;
+          border-bottom: 1px solid #f0f0f0;
+        }
+
+        /* Выделение строки */
+        .table-selected-row {
+          background: #f8fbff !important;
+          box-shadow: inset 4px 0 0 rgba(80, 200, 180, 0.75);
+        }
+
+        /* DnD */
+        .drag-handle {
+          cursor: grab;
+          opacity: 0.6;
+        }
+        .drag-handle:hover {
+          opacity: 1;
+          color: #3a6073;
+        }
+        .drag-handle:active {
+          cursor: grabbing;
+        }
+        .sortable-ghost {
+          opacity: 0.4;
+          background: #ffd9d9;
+          box-shadow: inset 0 0 10px rgba(16, 190, 83, 0.6);
+        }
+
+        /* Иконка "Выделить все" */
+        .toggle-all-btn {
+          cursor: pointer;
+          margin-left: 8px;
+          opacity: 0.7;
+          transition: all 0.3s;
+          font-size: 1.1rem;
+        }
+        .toggle-all-btn:hover {
+          opacity: 1;
+          transform: scale(1.2);
+        }
+      `}</style>
 		</div>
 	)
 }
