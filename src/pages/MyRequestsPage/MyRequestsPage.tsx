@@ -6,13 +6,27 @@ import {
 	MyRequestDto,
 } from '../../api/myRequestsApi'
 
-import './MyRequestsPage.css'
+import './MyRequestsPage.css' // Подключаем наш файл стилей
+
+// Функция для форматирования даты из формата "2025-03-12T00:00:00" в "12.03.2025"
+function formatDate(dateStr?: string): string {
+	if (!dateStr) return ''
+	const date = new Date(dateStr)
+	if (isNaN(date.getTime())) return dateStr // Если дата некорректна, возвращаем исходную строку
+	const day = String(date.getDate()).padStart(2, '0')
+	const month = String(date.getMonth() + 1).padStart(2, '0')
+	const year = date.getFullYear()
+	return `${day}.${month}.${year}`
+}
 
 const MyRequestsPage: React.FC = () => {
 	const navigate = useNavigate()
+
+	// Состояния для массива заявок и для возможной ошибки
 	const [requests, setRequests] = useState<MyRequestDto[]>([])
 	const [error, setError] = useState<string>('')
 
+	// При загрузке страницы проверяем токен и загружаем заявки
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
 		if (!token) {
@@ -27,6 +41,7 @@ const MyRequestsPage: React.FC = () => {
 			})
 	}, [navigate])
 
+	// Функция для изменения статуса заявки (Принять/Отклонить)
 	const handleSetStatus = async (
 		req: MyRequestDto,
 		newStatus: 'Accepted' | 'Declined'
@@ -59,9 +74,10 @@ const MyRequestsPage: React.FC = () => {
 		}
 	}
 
+	// Если есть ошибка, показываем её
 	if (error) {
 		return (
-			<div className='container mt-3 fade-in'>
+			<div className='container-fluid mt-3 fade-in my-requests-page'>
 				<h4 className='mb-3'>Мои входящие заявки</h4>
 				<div className='alert alert-danger'>{error}</div>
 			</div>
@@ -69,7 +85,8 @@ const MyRequestsPage: React.FC = () => {
 	}
 
 	return (
-		<div className='container mt-3 fade-in my-requests-page'>
+		// Используем container-fluid для полной ширины экрана
+		<div className='container-fluid mt-3 fade-in my-requests-page'>
 			<div className='d-flex justify-content-between mb-3'>
 				<h4 className='section-title'>Мои входящие заявки</h4>
 				<button className='btn btn-secondary' onClick={() => navigate('/')}>
@@ -103,8 +120,10 @@ const MyRequestsPage: React.FC = () => {
 						</thead>
 						<tbody>
 							{requests.map(r => {
+								// Определяем класс строки в зависимости от типа заявки
 								const rowClass =
 									r.requestType === 'факт' ? 'table-info' : 'table-warning'
+
 								return (
 									<tr key={r.id} className={rowClass}>
 										<td>{r.documentName}</td>
@@ -112,12 +131,13 @@ const MyRequestsPage: React.FC = () => {
 										<td>{r.executor}</td>
 										<td>{r.controller}</td>
 										<td>{r.receiver}</td>
-										<td>{r.planDate || ''}</td>
-										<td>{r.korrect1 || ''}</td>
-										<td>{r.korrect2 || ''}</td>
-										<td>{r.korrect3 || ''}</td>
+										{/* Форматируем даты с помощью нашей функции formatDate */}
+										<td>{formatDate(r.planDate)}</td>
+										<td>{formatDate(r.korrect1)}</td>
+										<td>{formatDate(r.korrect2)}</td>
+										<td>{formatDate(r.korrect3)}</td>
 										<td>{r.requestType}</td>
-										<td>{r.proposedDate || ''}</td>
+										<td>{formatDate(r.proposedDate)}</td>
 										<td>{r.sender}</td>
 										<td>{r.note}</td>
 										<td>

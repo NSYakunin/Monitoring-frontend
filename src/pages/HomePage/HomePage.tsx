@@ -18,6 +18,9 @@ import {
 	NotificationDto,
 } from '../../api/notificationsApi'
 
+// Импортируем метод, чтобы узнать входящие заявки (Pending)
+import { getMyRequests } from '../../api/myRequestsApi'
+
 // DnD
 import { ReactSortable } from 'react-sortablejs'
 
@@ -105,6 +108,9 @@ const HomePage: React.FC = () => {
 	// Название "домашнего" подразделения
 	const [homeDivName, setHomeDivName] = useState<string>('Неизвестный отдел')
 
+	// ----- Новое состояние: есть ли у меня входящие заявки -----
+	const [hasPendingRequests, setHasPendingRequests] = useState<boolean>(false)
+
 	// ----- Хуки загрузки данных -----
 
 	// При первом рендере проверяем токен, грузим список отделов
@@ -175,8 +181,31 @@ const HomePage: React.FC = () => {
 		if (!filters.selectedDivision) return
 		loadWorkItems()
 		loadNotifications(filters.selectedDivision)
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [filters])
+	}, [
+		filters.selectedDivision,
+		filters.startDate,
+		filters.endDate,
+		filters.executor,
+		filters.approver,
+		filters.search,
+	])
+
+	// *** ВАЖНО: запрашиваем входящие заявки, чтобы понять, нужно ли подсвечивать кнопку ***
+	useEffect(() => {
+		// Если нужно, можно проверять право canCloseWork, но для примера просто проверим наличие заявок
+		getMyRequests()
+			.then(data => {
+				if (data && data.length > 0) {
+					setHasPendingRequests(true)
+				} else {
+					setHasPendingRequests(false)
+				}
+			})
+			.catch(err => {
+				console.error('Ошибка при получении моих входящих заявок:', err)
+				setHasPendingRequests(false)
+			})
+	}, [])
 
 	const loadNotifications = (divisionId: number) => {
 		getActiveNotifications(divisionId)
@@ -591,9 +620,14 @@ const HomePage: React.FC = () => {
 							</div>
 						</div>
 
-						{/* Кнопка "Входящие заявки" */}
+						{/* Кнопка "Входящие заявки":
+              подменяем класс в зависимости от hasPendingRequests */}
 						<button
-							className='btn btn-myrequests-none'
+							className={
+								hasPendingRequests
+									? 'btn btn-myrequests-new'
+									: 'btn btn-myrequests-none'
+							}
 							onClick={handleMyRequests}
 						>
 							Входящие заявки
@@ -718,7 +752,7 @@ const HomePage: React.FC = () => {
 				/>
 			)}
 
-			{/* ---- Стили (можно вынести в .css) ---- */}
+			{/* ---- Стили (дополнены классами для кнопки "btn-myrequests-new" и анимации) ---- */}
 			<style>{`
         /* Анимация появления */
         @keyframes fadeInUp {
@@ -773,7 +807,7 @@ const HomePage: React.FC = () => {
           background: linear-gradient(145deg, #34495e, #2c3e50);
         }
 
-        /* Кнопка "Входящие заявки" */
+        /* Кнопка "Входящие заявки" - без заявок (серое) */
         .btn-myrequests-none {
           display: inline-block;
           text-align: center;
@@ -790,6 +824,33 @@ const HomePage: React.FC = () => {
           color: #ffffff;
           transform: translateY(-2px);
           box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+        }
+
+        /* Кнопка "Входящие заявки" - есть новые (желтая + пульсация) */
+        .btn-myrequests-new {
+          display: inline-block;
+          text-align: center;
+          padding: 10px 20px;
+          border-radius: 8px;
+          font-weight: 500;
+          transition: all 0.3s ease;
+          border: none;
+          background: #ffc107; /* желтый */
+          color: #212529;
+          box-shadow: 0 4px 8px rgba(255,193,7,0.4);
+          animation: pulse 2s infinite;
+        }
+        .btn-myrequests-new:hover {
+          background: #ffca2c; 
+          color: #212529;
+          box-shadow: 0 6px 12px rgba(255,193,7,0.5);
+          transform: translateY(-2px);
+        }
+
+        @keyframes pulse {
+          0% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
+          50% { box-shadow: 0 0 20px rgba(255,193,7,0.7); }
+          100% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
         }
 
         /* Таблица c "липким" заголовком */

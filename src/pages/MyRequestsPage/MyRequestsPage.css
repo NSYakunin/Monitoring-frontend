@@ -1,6 +1,21 @@
+/* Анимация появления сверху-вниз (fadeInUp) */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Класс для анимации - применяем fadeInUp */
 .my-requests-page {
   animation: fadeInUp 0.5s ease forwards;
-  opacity: 0;
+  opacity: 0; /* изначально прозрачность 0 */
+  width: 100%; /* Занимаем всю ширину */
+  padding: 0 20px; /* Чтобы не прилипало к краям */
 }
 
 .section-title {
@@ -8,7 +23,7 @@
   color: #2c3e50;
 }
 
-/* Липкий заголовок */
+/* Липкий заголовок таблицы */
 .sticky-header th {
   position: sticky;
   top: 0;
@@ -21,14 +36,17 @@
   white-space: nowrap;
 }
 
+/* Цвет фона для заявок типа "факт" */
 .table-info {
   background-color: rgba(23, 162, 184, 0.15) !important;
 }
 
+/* Цвет фона для остальных заявок */
 .table-warning {
   background-color: rgba(255, 193, 7, 0.15) !important;
 }
 
+/* Стиль кнопки "Принять" */
 .btn-approve {
   background: linear-gradient(145deg, #28a745, #218838);
   color: white;
@@ -50,6 +68,7 @@
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
+/* Стиль кнопки "Отклонить" */
 .btn-decline {
   background: linear-gradient(145deg, #dc3545, #c82333);
   color: white;
@@ -69,4 +88,15 @@
 .btn-decline:active {
   transform: translateY(1px);
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* Эффект при наведении на строку */
+.table-hover tbody tr {
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.table-hover tbody tr:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+  background-color: #fff !important; /* Можно слегка выделить фон */
 }
