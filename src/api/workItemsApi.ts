@@ -90,3 +90,13 @@ export async function getDivisionName(divisionId: number): Promise<string> {
 	})
 	return resp.data
 }
+
+// workItemsApi.ts
+export async function exportWorkItems(
+  body: any
+): Promise<Blob> {
+  const resp = await apiClient.post('/api/WorkItems/Export', body, {
+    responseType: 'blob'
+  });
+  return resp.data;
+}

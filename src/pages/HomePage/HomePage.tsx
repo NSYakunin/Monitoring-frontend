@@ -11,6 +11,7 @@ import {
 	getFilteredWorkItems,
 	clearWorkItemsCache,
 	WorkItemDto,
+	exportWorkItems,
 } from '../../api/workItemsApi'
 
 import {
@@ -27,14 +28,14 @@ import { ReactSortable } from 'react-sortablejs'
 // Модальное окно заявки
 import RequestModal from '../../components/RequestModal'
 
-// Функция для форматирования даты из формата "2025-03-12T00:00:00" в "12.03.25"
+// Функция для форматирования даты
 function formatDate(dateStr?: string): string {
 	if (!dateStr) return ''
 	const date = new Date(dateStr)
 	if (isNaN(date.getTime())) return dateStr
 	const day = String(date.getDate()).padStart(2, '0')
 	const month = String(date.getMonth() + 1).padStart(2, '0')
-	const year = String(date.getFullYear() % 100).padStart(2, '0') // Берем последние две цифры года
+	const year = String(date.getFullYear() % 100).padStart(2, '0')
 	return `${day}.${month}.${year}`
 }
 
@@ -72,7 +73,7 @@ const HomePage: React.FC = () => {
 	// Список уведомлений
 	const [notifications, setNotifications] = useState<NotificationDto[]>([])
 
-	// Список работ (после подгрузки преобразуем в массив WorkItemRow)
+	// Список работ
 	const [workItems, setWorkItems] = useState<WorkItemRow[]>([])
 
 	// Фильтры
@@ -80,7 +81,6 @@ const HomePage: React.FC = () => {
 		const now = new Date()
 		const year = now.getFullYear()
 		const month = now.getMonth() + 1
-		// Находим последний день текущего месяца
 		const lastDay = new Date(year, month, 0).getDate()
 		const mm = String(month).padStart(2, '0')
 		const dd = String(lastDay).padStart(2, '0')
@@ -89,7 +89,7 @@ const HomePage: React.FC = () => {
 
 	const [filters, setFilters] = useState<FilterState>({
 		selectedDivision: 0,
-		startDate: '2014-01-01', // дефолт
+		startDate: '2014-01-01',
 		endDate: getDefaultEndDate(),
 		executor: '',
 		approver: '',
@@ -119,12 +119,11 @@ const HomePage: React.FC = () => {
 	// Название "домашнего" подразделения
 	const [homeDivName, setHomeDivName] = useState<string>('Неизвестный отдел')
 
-	// ----- Новое состояние: есть ли у меня входящие заявки -----
+	// Новое состояние: есть ли у меня входящие заявки
 	const [hasPendingRequests, setHasPendingRequests] = useState<boolean>(false)
 
-	// ----- Хуки загрузки данных -----
+	// ----- Хуки загрузки -----
 
-	// При первом рендере проверяем токен, грузим список отделов
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
 		if (!token) {
@@ -136,7 +135,7 @@ const HomePage: React.FC = () => {
 			.then(async divIds => {
 				if (divIds.length === 0) return
 
-				// Загружаем названия отделов
+				// Загружаем названия
 				const divisionsWithNames: DivisionItem[] = []
 				for (let d of divIds) {
 					const name = await getDivisionName(d)
@@ -144,14 +143,13 @@ const HomePage: React.FC = () => {
 				}
 				setAllowedDivisions(divisionsWithNames)
 
-				// Определяем дефолтный division
+				// Определяем дефолтный отдел
 				const storedDivId = localStorage.getItem('divisionId')
 				let divIdFromStorage = 0
 				if (storedDivId) {
 					divIdFromStorage = parseInt(storedDivId, 10)
 				}
 
-				// Если он есть в списке – берём, иначе – первый
 				let defaultDiv = divisionsWithNames[0].id
 				if (divisionsWithNames.some(x => x.id === divIdFromStorage)) {
 					defaultDiv = divIdFromStorage
@@ -162,15 +160,13 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error(err))
 	}, [navigate])
 
-	// Загружаем имя "домашнего" подразделения
+	// Домашнее подразделение
 	useEffect(() => {
 		const homeDivId = localStorage.getItem('divisionId')
 		if (homeDivId) {
 			getDivisionName(Number(homeDivId))
 				.then(name => setHomeDivName(name))
-				.catch(err =>
-					console.error('Ошибка при получении имени подразделения:', err)
-				)
+				.catch(err => console.error('Ошибка имени отдела:', err))
 		}
 	}, [])
 
@@ -187,7 +183,7 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error(err))
 	}, [filters.selectedDivision])
 
-	// При любом изменении filters -> подгружаем workItems + уведомления
+	// При любом изменении фильтров -> грузим workItems и уведомления
 	useEffect(() => {
 		if (!filters.selectedDivision) return
 		loadWorkItems()
@@ -201,9 +197,8 @@ const HomePage: React.FC = () => {
 		filters.search,
 	])
 
-	// *** ВАЖНО: запрашиваем входящие заявки, чтобы понять, нужно ли подсвечивать кнопку ***
+	// Проверяем есть ли входящие заявки
 	useEffect(() => {
-		// Если нужно, можно проверять право canCloseWork, но для примера просто проверим наличие заявок
 		getMyRequests()
 			.then(data => {
 				if (data && data.length > 0) {
@@ -213,16 +208,14 @@ const HomePage: React.FC = () => {
 				}
 			})
 			.catch(err => {
-				console.error('Ошибка при получении моих входящих заявок:', err)
+				console.error('Ошибка getMyRequests:', err)
 				setHasPendingRequests(false)
 			})
 	}, [])
 
 	const loadNotifications = (divisionId: number) => {
 		getActiveNotifications(divisionId)
-			.then(data => {
-				setNotifications(data)
-			})
+			.then(data => setNotifications(data))
 			.catch(err => console.error('Ошибка уведомлений:', err))
 	}
 
@@ -243,14 +236,10 @@ const HomePage: React.FC = () => {
 				}))
 				setWorkItems(rows)
 			})
-			.catch(err => {
-				console.error('Ошибка при загрузке:', err)
-			})
+			.catch(err => console.error('Ошибка при загрузке:', err))
 	}
 
 	// ----- Обработчики -----
-
-	// Изменение полей фильтра
 	const handleChange = (
 		e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
 	) => {
@@ -264,7 +253,6 @@ const HomePage: React.FC = () => {
 		localStorage.setItem('divisionId', String(newDivId))
 	}
 
-	// Выход
 	const handleLogout = () => {
 		localStorage.removeItem('jwtToken')
 		localStorage.removeItem('userName')
@@ -272,19 +260,16 @@ const HomePage: React.FC = () => {
 		navigate('/login')
 	}
 
-	// "Входящие заявки"
 	const handleMyRequests = () => {
 		navigate('/my-requests')
 	}
 
-	// "Обновить" (очистить кэш)
 	const handleRefreshCache = () => {
 		clearWorkItemsCache(filters.selectedDivision)
 			.then(() => loadWorkItems())
 			.catch(err => console.error(err))
 	}
 
-	// Чекбокс в строке
 	const toggleRowSelection = (rowId: string) => {
 		setWorkItems(prev =>
 			prev.map(row =>
@@ -293,36 +278,31 @@ const HomePage: React.FC = () => {
 		)
 	}
 
-	// "Выделить/снять все"
 	const toggleSelectAll = () => {
 		const anyUnchecked = workItems.some(row => !row.selected)
 		setWorkItems(prev => prev.map(row => ({ ...row, selected: anyUnchecked })))
 	}
 
-	// Клик по строке
 	const handleRowClick = (rowId: string, e: React.MouseEvent) => {
 		const tag = (e.target as HTMLElement).tagName.toLowerCase()
 		if (tag === 'button' || tag === 'input') return
 		toggleRowSelection(rowId)
 	}
 
-	// DnD callback
 	const handleSort = (newState: WorkItemRow[]) => {
 		setWorkItems(newState)
 	}
 
 	// Экспорт
 	const handleExport = (format: string) => {
-		// Собираем выбранные docNumber'ы
 		const selected = workItems
 			.filter(r => r.selected)
 			.map(r => r.documentNumber)
 		let finalSelection = selected
 		if (selected.length === 0) {
-			// Если ничего не выбрано — берём все
+			// если ничего не выбрано — берём все
 			finalSelection = workItems.map(r => r.documentNumber)
 		}
-
 		const body = {
 			format,
 			selectedItems: finalSelection,
@@ -334,12 +314,9 @@ const HomePage: React.FC = () => {
 			divisionId: filters.selectedDivision,
 		}
 
-		axios
-			.post('/api/WorkItems/Export', body, {
-				responseType: 'blob',
-			})
+		exportWorkItems(body)
 			.then(res => {
-				const blob = new Blob([res.data], { type: res.headers['content-type'] })
+				const blob = new Blob([res], { type: 'content-type' })
 				const url = window.URL.createObjectURL(blob)
 				const link = document.createElement('a')
 				link.href = url
@@ -354,7 +331,7 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error('Ошибка при экспорте:', err))
 	}
 
-	// ----- Работа с модалкой "Заявка" -----
+	// ----- Модалка "Заявка" -----
 	const openRequestModal = (row: WorkItemRow) => {
 		if (!row.executor.includes(userName)) {
 			alert('Вы не являетесь исполнителем для этой работы.')
@@ -366,14 +343,14 @@ const HomePage: React.FC = () => {
 		setRowApprover(row.approver || '')
 
 		if (row.userPendingRequestId) {
-			// Существующая заявка
+			// существующая заявка
 			setModalRequestId(row.userPendingRequestId)
 			setModalReqType(row.userPendingRequestType || 'корр1')
 			setModalReqDate(row.userPendingProposedDate || '')
 			setModalReqNote(row.userPendingRequestNote || '')
 			setModalReceiver(row.userPendingReceiver || row.approver || '')
 		} else {
-			// Новая заявка
+			// новая заявка
 			setModalRequestId(undefined)
 			setModalReqType('корр1')
 			setModalReqDate('')
@@ -393,18 +370,16 @@ const HomePage: React.FC = () => {
 		loadWorkItems()
 	}
 
-	// ----- Разметка -----
 	return (
 		<div
 			className='home-container'
 			style={{ animation: 'fadeInUp 0.5s ease forwards', opacity: 0 }}
 		>
-			{/* ШАПКА: подразделение + пользователь + Фильтры + Кнопки "Обновить" и "Выход" */}
+			{/* Шапка */}
 			<div className='container-fluid mt-4'>
 				<div className='row mb-4'>
 					<div className='col-12'>
 						<div className='d-flex flex-wrap align-items-center justify-content-between bg-light p-3 rounded header-top-block'>
-							{/* Левая часть: подразделение, пользователь */}
 							<div>
 								<h5 className='mb-0'>Подразделение: {homeDivName}</h5>
 								<p className='text-muted mb-0'>
@@ -412,9 +387,7 @@ const HomePage: React.FC = () => {
 								</p>
 							</div>
 
-							{/* Форма фильтров + кнопки "Обновить" и "Выход" */}
 							<form className='d-flex flex-wrap align-items-end gap-2 filterForm'>
-								{/* Фильтр по датам */}
 								<div className='d-flex flex-column'>
 									<label htmlFor='startDate' className='form-label'>
 										C даты:
@@ -441,8 +414,6 @@ const HomePage: React.FC = () => {
 										onChange={handleChange}
 									/>
 								</div>
-
-								{/* Подразделение */}
 								<div className='d-flex flex-column'>
 									<label htmlFor='selectedDivision' className='form-label'>
 										Подразделение:
@@ -460,8 +431,6 @@ const HomePage: React.FC = () => {
 										))}
 									</select>
 								</div>
-
-								{/* Исполнитель */}
 								<div className='d-flex flex-column'>
 									<label htmlFor='executor' className='form-label'>
 										Исполнитель:
@@ -481,8 +450,6 @@ const HomePage: React.FC = () => {
 										))}
 									</select>
 								</div>
-
-								{/* Принимающий */}
 								<div className='d-flex flex-column'>
 									<label htmlFor='approver' className='form-label'>
 										Принимающий:
@@ -502,8 +469,6 @@ const HomePage: React.FC = () => {
 										))}
 									</select>
 								</div>
-
-								{/* Поиск */}
 								<div className='d-flex flex-column'>
 									<label htmlFor='search' className='form-label'>
 										Поиск:
@@ -519,7 +484,6 @@ const HomePage: React.FC = () => {
 									/>
 								</div>
 
-								{/* Кнопки справа */}
 								<div className='d-flex justify-content-end gap-3 mb-4'>
 									<button
 										type='button'
@@ -542,9 +506,8 @@ const HomePage: React.FC = () => {
 					</div>
 				</div>
 
-				{/* ВТОРОЙ РЯД: Уведомления + Сдаточный чек + Входящие заявки */}
+				{/* Второй ряд: уведомления + чек + входящие заявки */}
 				<div className='row mb-3 gx-3' style={{ minHeight: '50px' }}>
-					{/* Левая колонка: уведомления */}
 					<div className='col d-flex flex-column'>
 						<div
 							className='card shadow-sm flex-fill'
@@ -589,9 +552,7 @@ const HomePage: React.FC = () => {
 						</div>
 					</div>
 
-					{/* Правая колонка: Сдаточный чек + Входящие заявки */}
 					<div className='col-auto d-flex flex-column justify-content-end'>
-						{/* Кнопка "Сдаточный чек" (dropup) */}
 						<div className='d-flex justify-content-end mb-3'>
 							<div className='btn-group dropup'>
 								<button
@@ -631,8 +592,6 @@ const HomePage: React.FC = () => {
 							</div>
 						</div>
 
-						{/* Кнопка "Входящие заявки":
-              подменяем класс в зависимости от hasPendingRequests */}
 						<button
 							className={
 								hasPendingRequests
@@ -646,7 +605,7 @@ const HomePage: React.FC = () => {
 					</div>
 				</div>
 
-				{/* ТАБЛИЦА */}
+				{/* Таблица */}
 				<div className='row mb-4'>
 					<div className='col-12'>
 						<div className='table-container table-responsive'>
@@ -763,201 +722,183 @@ const HomePage: React.FC = () => {
 				/>
 			)}
 
-			{/* ---- Стили (дополнены классами для кнопки "btn-myrequests-new" и анимации) ---- */}
+			{/* Дополнительные стили */}
 			<style>{`
-        /* Анимация появления */
-        @keyframes fadeInUp {
-          0% {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        /* Общие */
-        .header-top-block {
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-        }
-        .filterForm .form-label {
-          font-weight: 500;
-        }
-        .btn-logout {
-          border: 2px solid #dc3545;
-          color: #dc3545;
-          background: transparent;
-          padding: 6px 12px;
-          border-radius: 8px;
-          transition: all 0.4s ease;
-          position: relative;
-        }
-        .btn-logout:hover {
-          background: rgba(220, 53, 69, 0.9);
-          color: white !important;
-          border-color: transparent;
-          box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
-        }
-
-        /* Кнопка "Сдаточный чек" (btn-pdf) */
-        .btn-pdf {
-          background: linear-gradient(145deg, #2c3e50, #34495e);
-          color: white !important;
-          border: none;
-          padding: 10px 20px;
-          border-radius: 8px;
-          transition: all 0.3s ease;
-          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-          position: relative;
-          overflow: hidden;
-        }
-        .btn-pdf:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 12px rgba(0,0,0,0.2);
-          background: linear-gradient(145deg, #34495e, #2c3e50);
-        }
-
-        /* Кнопка "Входящие заявки" - без заявок (серое) */
-        .btn-myrequests-none {
-          display: inline-block;
-          text-align: center;
-          padding: 10px 20px;
-          border-radius: 8px;
-          font-weight: 500;
-          transition: all 0.3s ease;
-          border: none;
-          background: #6c757d;
-          color: #f8f9fa;
-        }
-        .btn-myrequests-none:hover {
-          background: #5a6268;
-          color: #ffffff;
-          transform: translateY(-2px);
-          box-shadow: 0 6px 12px rgba(0,0,0,0.2);
-        }
-
-        /* Кнопка "Входящие заявки" - есть новые (желтая + пульсация) */
-        .btn-myrequests-new {
-          display: inline-block;
-          text-align: center;
-          padding: 10px 20px;
-          border-radius: 8px;
-          font-weight: 500;
-          transition: all 0.3s ease;
-          border: none;
-          background: #ffc107; /* желтый */
-          color: #212529;
-          box-shadow: 0 4px 8px rgba(255,193,7,0.4);
-          animation: pulse 2s infinite;
-        }
-        .btn-myrequests-new:hover {
-          background: #ffca2c; 
-          color: #212529;
-          box-shadow: 0 6px 12px rgba(255,193,7,0.5);
-          transform: translateY(-2px);
-        }
-
-        @keyframes pulse {
-          0% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
-          50% { box-shadow: 0 0 20px rgba(255,193,7,0.7); }
-          100% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
-        }
-
-        /* Таблица c "липким" заголовком */
-        .table-container {
-          background: #fff;
-          border-radius: 12px;
-          padding: 0.5rem;
-          box-shadow: 0 0 20px rgba(85, 209, 47, 0.1);
-        }
-        .sticky-header-table {
-          width: 100%;
-          border-collapse: separate;
-          border-spacing: 0;
-        }
-        .sticky-header-table thead th {
-          position: sticky;
-          top: 0;
-          z-index: 50;
-        }
-        .custom-header th {
-          background: linear-gradient(145deg, #a7c3df, #17518a);
-          color: #fff;
-          font-weight: 500;
-          padding: 10px;
-          position: relative;
-          border: none;
-          transition: all 0.3s ease;
-        }
-        .custom-header th:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 10px rgba(0,0,0,0.15);
-        }
-        .custom-header th:not(:last-child)::after {
-          content: '';
-          position: absolute;
-          right: 0;
-          top: 50%;
-          transform: translateY(-50%);
-          height: 60%;
-          width: 1px;
-          background: rgba(255, 255, 255, 0.1);
-        }
-
-        .sticky-header-table tbody tr {
-          background: #fff;
-          transition: all 0.3s;
-          position: relative;
-        }
-        .sticky-header-table tbody tr:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-          z-index: 2;
-        }
-        .sticky-header-table tbody td {
-          padding: 12px;
-          vertical-align: middle;
-          border-bottom: 1px solid #f0f0f0;
-        }
-
-        /* Выделение строки */
-        .table-selected-row {
-          background: #f8fbff !important;
-          box-shadow: inset 4px 0 0 rgba(80, 200, 180, 0.75);
-        }
-
-        /* DnD */
-        .drag-handle {
-          cursor: grab;
-          opacity: 0.6;
-        }
-        .drag-handle:hover {
-          opacity: 1;
-          color: #3a6073;
-        }
-        .drag-handle:active {
-          cursor: grabbing;
-        }
-        .sortable-ghost {
-          opacity: 0.4;
-          background: #ffd9d9;
-          box-shadow: inset 0 0 10px rgba(16, 190, 83, 0.6);
-        }
-
-        /* Иконка "Выделить все" */
-        .toggle-all-btn {
-          cursor: pointer;
-          margin-left: 8px;
-          opacity: 0.7;
-          transition: all 0.3s;
-          font-size: 1.1rem;
-        }
-        .toggle-all-btn:hover {
-          opacity: 1;
-          transform: scale(1.2);
-        }
-      `}</style>
+                /* Ваши стили - без изменений */
+                @keyframes fadeInUp {
+                    0% {
+                        opacity: 0;
+                        transform: translateY(10px);
+                    }
+                    100% {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
+                }
+                .header-top-block {
+                    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+                }
+                .filterForm .form-label {
+                    font-weight: 500;
+                }
+                .btn-logout {
+                    border: 2px solid #dc3545;
+                    color: #dc3545;
+                    background: transparent;
+                    padding: 6px 12px;
+                    border-radius: 8px;
+                    transition: all 0.4s ease;
+                    position: relative;
+                }
+                .btn-logout:hover {
+                    background: rgba(220, 53, 69, 0.9);
+                    color: white !important;
+                    border-color: transparent;
+                    box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
+                }
+                .btn-pdf {
+                    background: linear-gradient(145deg, #2c3e50, #34495e);
+                    color: white !important;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 8px;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    position: relative;
+                    overflow: hidden;
+                }
+                .btn-pdf:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+                    background: linear-gradient(145deg, #34495e, #2c3e50);
+                }
+                .btn-myrequests-none {
+                    display: inline-block;
+                    text-align: center;
+                    padding: 10px 20px;
+                    border-radius: 8px;
+                    font-weight: 500;
+                    transition: all 0.3s ease;
+                    border: none;
+                    background: #6c757d;
+                    color: #f8f9fa;
+                }
+                .btn-myrequests-none:hover {
+                    background: #5a6268;
+                    color: #ffffff;
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+                }
+                .btn-myrequests-new {
+                    display: inline-block;
+                    text-align: center;
+                    padding: 10px 20px;
+                    border-radius: 8px;
+                    font-weight: 500;
+                    transition: all 0.3s ease;
+                    border: none;
+                    background: #ffc107;
+                    color: #212529;
+                    box-shadow: 0 4px 8px rgba(255,193,7,0.4);
+                    animation: pulse 2s infinite;
+                }
+                .btn-myrequests-new:hover {
+                    background: #ffca2c; 
+                    color: #212529;
+                    box-shadow: 0 6px 12px rgba(255,193,7,0.5);
+                    transform: translateY(-2px);
+                }
+                @keyframes pulse {
+                    0% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
+                    50% { box-shadow: 0 0 20px rgba(255,193,7,0.7); }
+                    100% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
+                }
+                .table-container {
+                    background: #fff;
+                    border-radius: 12px;
+                    padding: 0.5rem;
+                    box-shadow: 0 0 20px rgba(85, 209, 47, 0.1);
+                }
+                .sticky-header-table {
+                    width: 100%;
+                    border-collapse: separate;
+                    border-spacing: 0;
+                }
+                .sticky-header-table thead th {
+                    position: sticky;
+                    top: 0;
+                    z-index: 50;
+                }
+                .custom-header th {
+                    background: linear-gradient(145deg, #a7c3df, #17518a);
+                    color: #fff;
+                    font-weight: 500;
+                    padding: 10px;
+                    position: relative;
+                    border: none;
+                    transition: all 0.3s ease;
+                }
+                .custom-header th:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+                }
+                .custom-header th:not(:last-child)::after {
+                    content: '';
+                    position: absolute;
+                    right: 0;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    height: 60%;
+                    width: 1px;
+                    background: rgba(255, 255, 255, 0.1);
+                }
+                .sticky-header-table tbody tr {
+                    background: #fff;
+                    transition: all 0.3s;
+                    position: relative;
+                }
+                .sticky-header-table tbody tr:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+                    z-index: 2;
+                }
+                .sticky-header-table tbody td {
+                    padding: 12px;
+                    vertical-align: middle;
+                    border-bottom: 1px solid #f0f0f0;
+                }
+                .table-selected-row {
+                    background: #f8fbff !important;
+                    box-shadow: inset 4px 0 0 rgba(80, 200, 180, 0.75);
+                }
+                .drag-handle {
+                    cursor: grab;
+                    opacity: 0.6;
+                }
+                .drag-handle:hover {
+                    opacity: 1;
+                    color: #3a6073;
+                }
+                .drag-handle:active {
+                    cursor: grabbing;
+                }
+                .sortable-ghost {
+                    opacity: 0.4;
+                    background: #ffd9d9;
+                    box-shadow: inset 0 0 10px rgba(16, 190, 83, 0.6);
+                }
+                .toggle-all-btn {
+                    cursor: pointer;
+                    margin-left: 8px;
+                    opacity: 0.7;
+                    transition: all 0.3s;
+                    font-size: 1.1rem;
+                }
+                .toggle-all-btn:hover {
+                    opacity: 1;
+                    transform: scale(1.2);
+                }
+            `}</style>
 		</div>
 	)
 }
