@@ -27,6 +27,17 @@ import { ReactSortable } from 'react-sortablejs'
 // Модальное окно заявки
 import RequestModal from '../../components/RequestModal'
 
+// Функция для форматирования даты из формата "2025-03-12T00:00:00" в "12.03.25"
+function formatDate(dateStr?: string): string {
+	if (!dateStr) return ''
+	const date = new Date(dateStr)
+	if (isNaN(date.getTime())) return dateStr
+	const day = String(date.getDate()).padStart(2, '0')
+	const month = String(date.getMonth() + 1).padStart(2, '0')
+	const year = String(date.getFullYear() % 100).padStart(2, '0') // Берем последние две цифры года
+	return `${day}.${month}.${year}`
+}
+
 interface WorkItemRow extends WorkItemDto {
 	id: string
 	selected: boolean
@@ -704,10 +715,10 @@ const HomePage: React.FC = () => {
 												</td>
 												<td>{item.controller}</td>
 												<td>{item.approver}</td>
-												<td>{item.planDate}</td>
-												<td>{item.korrect1}</td>
-												<td>{item.korrect2}</td>
-												<td>{item.korrect3}</td>
+												<td>{formatDate(item.planDate)}</td>
+												<td>{formatDate(item.korrect1)}</td>
+												<td>{formatDate(item.korrect2)}</td>
+												<td>{formatDate(item.korrect3)}</td>
 												<td>
 													<input
 														type='checkbox'
