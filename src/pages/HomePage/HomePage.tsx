@@ -2,15 +2,14 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
-// Импорт api-функций (пример, меняйте пути на нужные)
+// Импорт api-функций
 import {
 	getAllowedDivisions,
 	getExecutors,
 	getApprovers,
 	getDivisionName,
-	getFilteredWorkItems,
+	getFilteredWorkItems, // <-- теперь возвращает PagedWorkItemsDto
 	clearWorkItemsCache,
-	WorkItemDto,
 	exportWorkItems,
 } from '../../api/workItemsApi'
 
@@ -19,29 +18,40 @@ import {
 	NotificationDto,
 } from '../../api/notificationsApi'
 
-// Импортируем метод, чтобы узнать входящие заявки (Pending)
 import { getMyRequests } from '../../api/myRequestsApi'
-
-// DnD
 import { ReactSortable } from 'react-sortablejs'
-
-// Модальное окно заявки
 import RequestModal from '../../components/RequestModal'
 
-// Функция для форматирования даты
-function formatDate(dateStr?: string): string {
-	if (!dateStr) return ''
-	const date = new Date(dateStr)
-	if (isNaN(date.getTime())) return dateStr
-	const day = String(date.getDate()).padStart(2, '0')
-	const month = String(date.getMonth() + 1).padStart(2, '0')
-	const year = String(date.getFullYear() % 100).padStart(2, '0')
-	return `${day}.${month}.${year}`
+// Интерфейс, который приходит в ответ на getFilteredWorkItems:
+interface PagedWorkItemsDto {
+	items: WorkItemRow[]
+	currentPage: number
+	pageSize: number
+	totalPages: number
+	totalCount: number
 }
 
-interface WorkItemRow extends WorkItemDto {
+export interface WorkItemRow {
+	documentNumber: string
+	documentName: string
+	workName: string
+	executor: string
+	controller: string
+	approver: string
+	planDate?: string
+	korrect1?: string
+	korrect2?: string
+	korrect3?: string
+	factDate?: string
+	highlightCssClass?: string
+	userPendingRequestId?: number
+	userPendingRequestType?: string
+	userPendingProposedDate?: string
+	userPendingRequestNote?: string
+	userPendingReceiver?: string
+
+	// Поля для удобства в таблице (нужны, чтобы sortable работал):
 	id: string
-	selected: boolean
 }
 
 interface DivisionItem {
@@ -49,6 +59,7 @@ interface DivisionItem {
 	name: string
 }
 
+// Фильтры
 interface FilterState {
 	selectedDivision: number
 	startDate: string
@@ -56,6 +67,14 @@ interface FilterState {
 	executor: string
 	approver: string
 	search: string
+}
+
+// Для пагинации
+interface PagingState {
+	currentPage: number
+	totalPages: number
+	pageSize: number
+	totalCount: number
 }
 
 const HomePage: React.FC = () => {
@@ -73,8 +92,11 @@ const HomePage: React.FC = () => {
 	// Список уведомлений
 	const [notifications, setNotifications] = useState<NotificationDto[]>([])
 
-	// Список работ
+	// Список работ (только текущая страница!)
 	const [workItems, setWorkItems] = useState<WorkItemRow[]>([])
+
+	// Глобальный список выбранных DocumentNumber для экспорта (аккумулируется со всех страниц)
+	const [selectedDocs, setSelectedDocs] = useState<string[]>([])
 
 	// Фильтры
 	const getDefaultEndDate = () => {
@@ -87,8 +109,12 @@ const HomePage: React.FC = () => {
 		return `${year}-${mm}-${dd}`
 	}
 
+	// По умолчанию выберем домашний отдел из localStorage (если есть)
+	const homeDivisionId = Number(localStorage.getItem('divisionId') || '0')
+
 	const [filters, setFilters] = useState<FilterState>({
-		selectedDivision: 0,
+		// Ставим по умолчанию не 0, а "домашний" отдел
+		selectedDivision: homeDivisionId,
 		startDate: '2014-01-01',
 		endDate: getDefaultEndDate(),
 		executor: '',
@@ -96,13 +122,19 @@ const HomePage: React.FC = () => {
 		search: '',
 	})
 
+	// Пагинация
+	const [paging, setPaging] = useState<PagingState>({
+		currentPage: 1,
+		totalPages: 1,
+		pageSize: 50,
+		totalCount: 0,
+	})
+
 	// Для показа/скрытия модалки RequestModal
 	const [showRequestModal, setShowRequestModal] = useState(false)
 
 	// Поля для модалки (заявки)
-	const [modalRequestId, setModalRequestId] = useState<number | undefined>(
-		undefined
-	)
+	const [modalRequestId, setModalRequestId] = useState<number | undefined>()
 	const [modalDocNumber, setModalDocNumber] = useState<string>('')
 	const [modalReqType, setModalReqType] = useState<string>('')
 	const [modalReqDate, setModalReqDate] = useState<string>('')
@@ -116,14 +148,15 @@ const HomePage: React.FC = () => {
 	// Текущий пользователь
 	const userName = localStorage.getItem('userName') || ''
 
-	// Название "домашнего" подразделения
+	// Название "домашнего" подразделения (всегда показывается в шапке)
 	const [homeDivName, setHomeDivName] = useState<string>('Неизвестный отдел')
 
-	// Новое состояние: есть ли у меня входящие заявки
+	// Есть ли у меня входящие заявки
 	const [hasPendingRequests, setHasPendingRequests] = useState<boolean>(false)
 
 	// ----- Хуки загрузки -----
 
+	// Загружаем список "доступных отделов" при маунте
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
 		if (!token) {
@@ -135,59 +168,54 @@ const HomePage: React.FC = () => {
 			.then(async divIds => {
 				if (divIds.length === 0) return
 
-				// Загружаем названия
+				// divIds содержит и 0 (Все подразделения), и другие ID.
+				// Для каждого запрашиваем имя отдела:
 				const divisionsWithNames: DivisionItem[] = []
 				for (let d of divIds) {
-					const name = await getDivisionName(d)
-					divisionsWithNames.push({ id: d, name })
+					if (d === 0) {
+						divisionsWithNames.push({ id: 0, name: 'Все подразделения' })
+					} else {
+						const name = await getDivisionName(d)
+						divisionsWithNames.push({ id: d, name })
+					}
 				}
 				setAllowedDivisions(divisionsWithNames)
-
-				// Определяем дефолтный отдел
-				const storedDivId = localStorage.getItem('divisionId')
-				let divIdFromStorage = 0
-				if (storedDivId) {
-					divIdFromStorage = parseInt(storedDivId, 10)
-				}
-
-				let defaultDiv = divisionsWithNames[0].id
-				if (divisionsWithNames.some(x => x.id === divIdFromStorage)) {
-					defaultDiv = divIdFromStorage
-				}
-
-				setFilters(prev => ({ ...prev, selectedDivision: defaultDiv }))
 			})
 			.catch(err => console.error(err))
 	}, [navigate])
 
-	// Домашнее подразделение
+	// Загружаем имя домашнего отдела (для шапки)
 	useEffect(() => {
-		const homeDivId = localStorage.getItem('divisionId')
-		if (homeDivId) {
-			getDivisionName(Number(homeDivId))
+		if (homeDivisionId) {
+			getDivisionName(homeDivisionId)
 				.then(name => setHomeDivName(name))
 				.catch(err => console.error('Ошибка имени отдела:', err))
 		}
-	}, [])
+	}, [homeDivisionId])
 
 	// При смене selectedDivision -> грузим исполнителей/принимающих
+	// (Теперь **не** блокируем их при 0, просто грузим или очищаем)
 	useEffect(() => {
-		if (!filters.selectedDivision) return
+		if (filters.selectedDivision === 0) {
+			// Если "Все подразделения" - можно либо собрать всех, либо оставить пустое,
+			// в RazorPages-беке мы брали "getAllUsersAsync". Если нужно, можете сюда
+			// вставить свой метод "getAllUsers" и заполнить.
+			setExecutorsList([])
+			setApproversList([])
+		} else {
+			getExecutors(filters.selectedDivision)
+				.then(execs => setExecutorsList(execs))
+				.catch(err => console.error(err))
 
-		getExecutors(filters.selectedDivision)
-			.then(execs => setExecutorsList(execs))
-			.catch(err => console.error(err))
-
-		getApprovers(filters.selectedDivision)
-			.then(apprs => setApproversList(apprs))
-			.catch(err => console.error(err))
+			getApprovers(filters.selectedDivision)
+				.then(apprs => setApproversList(apprs))
+				.catch(err => console.error(err))
+		}
 	}, [filters.selectedDivision])
 
-	// При любом изменении фильтров -> грузим workItems и уведомления
+	// При любом изменении фильтров -> сбрасываем страницу в 1 -> перезагружаем
 	useEffect(() => {
-		if (!filters.selectedDivision) return
-		loadWorkItems()
-		loadNotifications(filters.selectedDivision)
+		setPaging(prev => ({ ...prev, currentPage: 1 }))
 	}, [
 		filters.selectedDivision,
 		filters.startDate,
@@ -196,6 +224,12 @@ const HomePage: React.FC = () => {
 		filters.approver,
 		filters.search,
 	])
+
+	// Когда currentPage или сами фильтры меняются -> грузим workItems
+	useEffect(() => {
+		loadWorkItems()
+		loadNotifications(filters.selectedDivision)
+	}, [paging.currentPage, filters])
 
 	// Проверяем есть ли входящие заявки
 	useEffect(() => {
@@ -214,27 +248,45 @@ const HomePage: React.FC = () => {
 	}, [])
 
 	const loadNotifications = (divisionId: number) => {
+		// Если divisionId=0, в вашем случае можно ничего не грузить
+		if (divisionId === 0) {
+			setNotifications([])
+			return
+		}
 		getActiveNotifications(divisionId)
 			.then(data => setNotifications(data))
 			.catch(err => console.error('Ошибка уведомлений:', err))
 	}
 
 	const loadWorkItems = () => {
-		getFilteredWorkItems(
-			filters.startDate,
-			filters.endDate,
-			filters.executor,
-			filters.approver,
-			filters.search,
-			filters.selectedDivision
-		)
-			.then(data => {
-				const rows: WorkItemRow[] = data.map((w, index) => ({
+		getFilteredWorkItems({
+			startDate: filters.startDate,
+			endDate: filters.endDate,
+			executor: filters.executor,
+			approver: filters.approver,
+			search: filters.search,
+			divisionId: filters.selectedDivision,
+			pageNumber: paging.currentPage,
+			pageSize: paging.pageSize,
+		})
+			.then(res => {
+				// res - это PagedWorkItemsDto
+				const { items, currentPage, totalPages, totalCount, pageSize } = res
+
+				// Преобразуем items -> у каждого добавим id
+				const rows = items.map((w, index) => ({
 					...w,
 					id: w.documentNumber || 'row_' + index,
-					selected: false,
 				}))
+
 				setWorkItems(rows)
+
+				setPaging({
+					currentPage,
+					pageSize,
+					totalPages,
+					totalCount,
+				})
 			})
 			.catch(err => console.error('Ошибка при загрузке:', err))
 	}
@@ -250,7 +302,6 @@ const HomePage: React.FC = () => {
 	const handleDivisionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
 		const newDivId = Number(e.target.value)
 		setFilters(prev => ({ ...prev, selectedDivision: newDivId }))
-		localStorage.setItem('divisionId', String(newDivId))
 	}
 
 	const handleLogout = () => {
@@ -270,23 +321,45 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error(err))
 	}
 
-	const toggleRowSelection = (rowId: string) => {
-		setWorkItems(prev =>
-			prev.map(row =>
-				row.id === rowId ? { ...row, selected: !row.selected } : row
-			)
-		)
+	// Функция, которая добавляет или убирает docNumber из глобального списка selectedDocs
+	const toggleGlobalSelection = (docNumber: string) => {
+		setSelectedDocs(prev => {
+			if (prev.includes(docNumber)) {
+				// убрать
+				return prev.filter(x => x !== docNumber)
+			} else {
+				// добавить
+				return [...prev, docNumber]
+			}
+		})
 	}
 
+	// Выбрать/снять все на текущей странице
 	const toggleSelectAll = () => {
-		const anyUnchecked = workItems.some(row => !row.selected)
-		setWorkItems(prev => prev.map(row => ({ ...row, selected: anyUnchecked })))
+		// Проверяем, есть ли хоть одна строка, которая ещё не выбрана
+		const anyUnchecked = workItems.some(
+			row => !selectedDocs.includes(row.documentNumber)
+		)
+		if (anyUnchecked) {
+			// Выбираем все
+			const allDocsOnThisPage = workItems.map(r => r.documentNumber)
+			setSelectedDocs(prev => {
+				// Объединим
+				const setUnion = new Set([...prev, ...allDocsOnThisPage])
+				return Array.from(setUnion)
+			})
+		} else {
+			// Снимаем выделение для текущей страницы
+			const allDocsOnThisPage = workItems.map(r => r.documentNumber)
+			setSelectedDocs(prev => prev.filter(x => !allDocsOnThisPage.includes(x)))
+		}
 	}
 
-	const handleRowClick = (rowId: string, e: React.MouseEvent) => {
+	// Клик по строке (если не по кнопке редактирования)
+	const handleRowClick = (row: WorkItemRow, e: React.MouseEvent) => {
 		const tag = (e.target as HTMLElement).tagName.toLowerCase()
-		if (tag === 'button' || tag === 'input') return
-		toggleRowSelection(rowId)
+		if (tag === 'button' || tag === 'input' || tag === 'i') return
+		toggleGlobalSelection(row.documentNumber)
 	}
 
 	const handleSort = (newState: WorkItemRow[]) => {
@@ -294,15 +367,15 @@ const HomePage: React.FC = () => {
 	}
 
 	// Экспорт
+	// Теперь берём ВСЕ выбранные docNumbers из selectedDocs, а не только с текущей страницы.
+	// Если ничего не выбрано - отправляем пустой массив => бэкенд вернёт всё.
 	const handleExport = (format: string) => {
-		const selected = workItems
-			.filter(r => r.selected)
-			.map(r => r.documentNumber)
-		let finalSelection = selected
-		if (selected.length === 0) {
-			// если ничего не выбрано — берём все
-			finalSelection = workItems.map(r => r.documentNumber)
+		let finalSelection = selectedDocs
+		if (selectedDocs.length === 0) {
+			// Если ничего не выбрано, бэкенд выгрузит все
+			finalSelection = []
 		}
+
 		const body = {
 			format,
 			selectedItems: finalSelection,
@@ -337,27 +410,23 @@ const HomePage: React.FC = () => {
 			alert('Вы не являетесь исполнителем для этой работы.')
 			return
 		}
-
 		setModalDocNumber(row.documentNumber)
 		setRowController(row.controller || '')
 		setRowApprover(row.approver || '')
 
 		if (row.userPendingRequestId) {
-			// существующая заявка
 			setModalRequestId(row.userPendingRequestId)
 			setModalReqType(row.userPendingRequestType || 'корр1')
 			setModalReqDate(row.userPendingProposedDate || '')
 			setModalReqNote(row.userPendingRequestNote || '')
 			setModalReceiver(row.userPendingReceiver || row.approver || '')
 		} else {
-			// новая заявка
 			setModalRequestId(undefined)
 			setModalReqType('корр1')
 			setModalReqDate('')
 			setModalReqNote('')
 			setModalReceiver(row.approver || '')
 		}
-
 		setShowRequestModal(true)
 	}
 
@@ -370,13 +439,35 @@ const HomePage: React.FC = () => {
 		loadWorkItems()
 	}
 
+	// Переход на страницу "Исполнительность"
+	const handlePerformance = () => {
+		navigate('/performance')
+	}
+
+	// Функция форматирования дат
+	function formatDate(dateStr?: string): string {
+		if (!dateStr) return ''
+		const date = new Date(dateStr)
+		if (isNaN(date.getTime())) return dateStr
+		const day = String(date.getDate()).padStart(2, '0')
+		const month = String(date.getMonth() + 1).padStart(2, '0')
+		const year = String(date.getFullYear()).padStart(4, '0')
+		return `${day}.${month}.${year}`
+	}
+
+	// Обработчик смены страницы при пагинации
+	const handlePageChange = (newPage: number) => {
+		if (newPage < 1 || newPage > paging.totalPages) return
+		setPaging(prev => ({ ...prev, currentPage: newPage }))
+	}
+
 	return (
 		<div
 			className='home-container'
 			style={{ animation: 'fadeInUp 0.5s ease forwards', opacity: 0 }}
 		>
-			{/* Шапка */}
 			<div className='container-fluid mt-4'>
+				{/* Шапка — здесь всегда показываем родное подразделение (homeDivName) */}
 				<div className='row mb-4'>
 					<div className='col-12'>
 						<div className='d-flex flex-wrap align-items-center justify-content-between bg-light p-3 rounded header-top-block'>
@@ -387,6 +478,7 @@ const HomePage: React.FC = () => {
 								</p>
 							</div>
 
+							{/* Фильтры */}
 							<form className='d-flex flex-wrap align-items-end gap-2 filterForm'>
 								<div className='d-flex flex-column'>
 									<label htmlFor='startDate' className='form-label'>
@@ -441,6 +533,7 @@ const HomePage: React.FC = () => {
 										value={filters.executor}
 										onChange={handleChange}
 										className='form-select'
+										// Больше не отключаем, если selectedDivision=0
 									>
 										<option value=''>Все исполнители</option>
 										{executorsList.map(e => (
@@ -460,6 +553,7 @@ const HomePage: React.FC = () => {
 										value={filters.approver}
 										onChange={handleChange}
 										className='form-select'
+										// Больше не отключаем, если selectedDivision=0
 									>
 										<option value=''>Все принимающие</option>
 										{approversList.map(a => (
@@ -506,7 +600,7 @@ const HomePage: React.FC = () => {
 					</div>
 				</div>
 
-				{/* Второй ряд: уведомления + чек + входящие заявки */}
+				{/* Второй ряд: уведомления + чек + входящие заявки + Исполнительность */}
 				<div className='row mb-3 gx-3' style={{ minHeight: '50px' }}>
 					<div className='col d-flex flex-column'>
 						<div
@@ -595,17 +689,84 @@ const HomePage: React.FC = () => {
 						<button
 							className={
 								hasPendingRequests
-									? 'btn btn-myrequests-new'
-									: 'btn btn-myrequests-none'
+									? 'btn btn-myrequests-new mb-2'
+									: 'btn btn-myrequests-none mb-2'
 							}
 							onClick={handleMyRequests}
 						>
 							Входящие заявки
 						</button>
+
+						{/* Кнопка "Исполнительность" */}
+						<button className='btn btn-performance' onClick={handlePerformance}>
+							Исполнительность
+						</button>
 					</div>
 				</div>
 
-				{/* Таблица */}
+				{/* ТАБЛИЦА + ПАГИНАЦИЯ */}
+				{/* Верхняя пагинация */}
+				{paging.totalPages > 1 && (
+					<div className='row mb-2'>
+						<div className='col d-flex justify-content-center align-items-center'>
+							<nav aria-label='Page navigation' className='my-custom-paging'>
+								<ul className='pagination custom-pagination'>
+									{paging.currentPage > 1 && (
+										<li className='page-item'>
+											<a
+												href='#'
+												className='page-link'
+												onClick={e => {
+													e.preventDefault()
+													handlePageChange(paging.currentPage - 1)
+												}}
+											>
+												&laquo;
+											</a>
+										</li>
+									)}
+									{Array.from(
+										{ length: paging.totalPages },
+										(_, i) => i + 1
+									).map(num => (
+										<li
+											className={`page-item ${
+												num === paging.currentPage ? 'active' : ''
+											}`}
+											key={num}
+										>
+											<a
+												href='#'
+												className='page-link'
+												onClick={e => {
+													e.preventDefault()
+													handlePageChange(num)
+												}}
+											>
+												{num}
+											</a>
+										</li>
+									))}
+									{paging.currentPage < paging.totalPages && (
+										<li className='page-item'>
+											<a
+												href='#'
+												className='page-link'
+												onClick={e => {
+													e.preventDefault()
+													handlePageChange(paging.currentPage + 1)
+												}}
+											>
+												&raquo;
+											</a>
+										</li>
+									)}
+								</ul>
+							</nav>
+						</div>
+					</div>
+				)}
+
 				<div className='row mb-4'>
 					<div className='col-12'>
 						<div className='table-container table-responsive'>
@@ -643,8 +804,13 @@ const HomePage: React.FC = () => {
 									handle='.drag-handle'
 								>
 									{workItems.map((item, index) => {
+										// Определяем, выделен ли данный docNumber в глобальном массиве selectedDocs
+										const isSelected = selectedDocs.includes(
+											item.documentNumber
+										)
+
 										let rowClass = item.highlightCssClass || ''
-										if (item.selected) {
+										if (isSelected) {
 											rowClass += ' table-selected-row'
 										}
 
@@ -652,11 +818,15 @@ const HomePage: React.FC = () => {
 											<tr
 												key={item.id}
 												className={rowClass.trim()}
-												onClick={e => handleRowClick(item.id, e)}
+												onClick={e => handleRowClick(item, e)}
 											>
 												<td className='align-middle'>
 													<div className='d-flex align-items-center gap-2'>
-														<span>{index + 1}</span>
+														<span>
+															{index +
+																1 +
+																(paging.currentPage - 1) * paging.pageSize}
+														</span>
 														<span
 															className='drag-handle'
 															title='Перетащите строку'
@@ -681,8 +851,11 @@ const HomePage: React.FC = () => {
 												<td>
 													<input
 														type='checkbox'
-														checked={item.selected}
-														onChange={() => toggleRowSelection(item.id)}
+														checked={isSelected}
+														onChange={e => {
+															e.stopPropagation()
+															toggleGlobalSelection(item.documentNumber)
+														}}
 													/>
 													<button
 														type='button'
@@ -703,6 +876,68 @@ const HomePage: React.FC = () => {
 						</div>
 					</div>
 				</div>
+
+				{/* Нижняя пагинация */}
+				{paging.totalPages > 1 && (
+					<div className='row mt-3'>
+						<div className='col d-flex justify-content-center'>
+							<nav aria-label='Page navigation' className='my-custom-paging'>
+								<ul className='pagination custom-pagination'>
+									{paging.currentPage > 1 && (
+										<li className='page-item'>
+											<a
+												href='#'
+												className='page-link'
+												onClick={e => {
+													e.preventDefault()
+													handlePageChange(paging.currentPage - 1)
+												}}
+											>
+												&laquo;
+											</a>
+										</li>
+									)}
+									{Array.from(
+										{ length: paging.totalPages },
+										(_, i) => i + 1
+									).map(num => (
+										<li
+											className={`page-item ${
+												num === paging.currentPage ? 'active' : ''
+											}`}
+											key={num}
+										>
+											<a
+												href='#'
+												className='page-link'
+												onClick={e => {
+													e.preventDefault()
+													handlePageChange(num)
+												}}
+											>
+												{num}
+											</a>
+										</li>
+									))}
+									{paging.currentPage < paging.totalPages && (
+										<li className='page-item'>
+											<a
+												href='#'
+												className='page-link'
+												onClick={e => {
+													e.preventDefault()
+													handlePageChange(paging.currentPage + 1)
+												}}
+											>
+												&raquo;
+											</a>
+										</li>
+									)}
+								</ul>
+							</nav>
+						</div>
+					</div>
+				)}
 			</div>
 
 			{/* Модалка RequestModal */}
@@ -722,183 +957,225 @@ const HomePage: React.FC = () => {
 				/>
 			)}
 
-			{/* Дополнительные стили */}
+			{/* Стили */}
 			<style>{`
-                /* Ваши стили - без изменений */
-                @keyframes fadeInUp {
-                    0% {
-                        opacity: 0;
-                        transform: translateY(10px);
-                    }
-                    100% {
-                        opacity: 1;
-                        transform: translateY(0);
-                    }
-                }
-                .header-top-block {
-                    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-                }
-                .filterForm .form-label {
-                    font-weight: 500;
-                }
-                .btn-logout {
-                    border: 2px solid #dc3545;
-                    color: #dc3545;
-                    background: transparent;
-                    padding: 6px 12px;
-                    border-radius: 8px;
-                    transition: all 0.4s ease;
-                    position: relative;
-                }
-                .btn-logout:hover {
-                    background: rgba(220, 53, 69, 0.9);
-                    color: white !important;
-                    border-color: transparent;
-                    box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
-                }
-                .btn-pdf {
-                    background: linear-gradient(145deg, #2c3e50, #34495e);
-                    color: white !important;
-                    border: none;
-                    padding: 10px 20px;
-                    border-radius: 8px;
-                    transition: all 0.3s ease;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                    position: relative;
-                    overflow: hidden;
-                }
-                .btn-pdf:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 6px 12px rgba(0,0,0,0.2);
-                    background: linear-gradient(145deg, #34495e, #2c3e50);
-                }
-                .btn-myrequests-none {
-                    display: inline-block;
-                    text-align: center;
-                    padding: 10px 20px;
-                    border-radius: 8px;
-                    font-weight: 500;
-                    transition: all 0.3s ease;
-                    border: none;
-                    background: #6c757d;
-                    color: #f8f9fa;
-                }
-                .btn-myrequests-none:hover {
-                    background: #5a6268;
-                    color: #ffffff;
-                    transform: translateY(-2px);
-                    box-shadow: 0 6px 12px rgba(0,0,0,0.2);
-                }
-                .btn-myrequests-new {
-                    display: inline-block;
-                    text-align: center;
-                    padding: 10px 20px;
-                    border-radius: 8px;
-                    font-weight: 500;
-                    transition: all 0.3s ease;
-                    border: none;
-                    background: #ffc107;
-                    color: #212529;
-                    box-shadow: 0 4px 8px rgba(255,193,7,0.4);
-                    animation: pulse 2s infinite;
-                }
-                .btn-myrequests-new:hover {
-                    background: #ffca2c; 
-                    color: #212529;
-                    box-shadow: 0 6px 12px rgba(255,193,7,0.5);
-                    transform: translateY(-2px);
-                }
-                @keyframes pulse {
-                    0% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
-                    50% { box-shadow: 0 0 20px rgba(255,193,7,0.7); }
-                    100% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
-                }
-                .table-container {
-                    background: #fff;
-                    border-radius: 12px;
-                    padding: 0.5rem;
-                    box-shadow: 0 0 20px rgba(85, 209, 47, 0.1);
-                }
-                .sticky-header-table {
-                    width: 100%;
-                    border-collapse: separate;
-                    border-spacing: 0;
-                }
-                .sticky-header-table thead th {
-                    position: sticky;
-                    top: 0;
-                    z-index: 50;
-                }
-                .custom-header th {
-                    background: linear-gradient(145deg, #a7c3df, #17518a);
-                    color: #fff;
-                    font-weight: 500;
-                    padding: 10px;
-                    position: relative;
-                    border: none;
-                    transition: all 0.3s ease;
-                }
-                .custom-header th:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
-                }
-                .custom-header th:not(:last-child)::after {
-                    content: '';
-                    position: absolute;
-                    right: 0;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    height: 60%;
-                    width: 1px;
-                    background: rgba(255, 255, 255, 0.1);
-                }
-                .sticky-header-table tbody tr {
-                    background: #fff;
-                    transition: all 0.3s;
-                    position: relative;
-                }
-                .sticky-header-table tbody tr:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-                    z-index: 2;
-                }
-                .sticky-header-table tbody td {
-                    padding: 12px;
-                    vertical-align: middle;
-                    border-bottom: 1px solid #f0f0f0;
-                }
-                .table-selected-row {
-                    background: #f8fbff !important;
-                    box-shadow: inset 4px 0 0 rgba(80, 200, 180, 0.75);
-                }
-                .drag-handle {
-                    cursor: grab;
-                    opacity: 0.6;
-                }
-                .drag-handle:hover {
-                    opacity: 1;
-                    color: #3a6073;
-                }
-                .drag-handle:active {
-                    cursor: grabbing;
-                }
-                .sortable-ghost {
-                    opacity: 0.4;
-                    background: #ffd9d9;
-                    box-shadow: inset 0 0 10px rgba(16, 190, 83, 0.6);
-                }
-                .toggle-all-btn {
-                    cursor: pointer;
-                    margin-left: 8px;
-                    opacity: 0.7;
-                    transition: all 0.3s;
-                    font-size: 1.1rem;
-                }
-                .toggle-all-btn:hover {
-                    opacity: 1;
-                    transform: scale(1.2);
-                }
-            `}</style>
+        @keyframes fadeInUp {
+          0% {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .header-top-block {
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        }
+        .filterForm .form-label {
+          font-weight: 500;
+        }
+        .btn-logout {
+          border: 2px solid #dc3545;
+          color: #dc3545;
+          background: transparent;
+          padding: 6px 12px;
+          border-radius: 8px;
+          transition: all 0.4s ease;
+          position: relative;
+        }
+        .btn-logout:hover {
+          background: rgba(220, 53, 69, 0.9);
+          color: white !important;
+          border-color: transparent;
+          box-shadow: 0 4px 8px rgba(220,53,69,0.3);
+        }
+        .btn-pdf {
+          background: linear-gradient(145deg, #2c3e50, #34495e);
+          color: white !important;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 8px;
+          transition: all 0.3s ease;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+          position: relative;
+          overflow: hidden;
+        }
+        .btn-pdf:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+          background: linear-gradient(145deg, #34495e, #2c3e50);
+        }
+        .btn-myrequests-none {
+          display: inline-block;
+          text-align: center;
+          padding: 10px 20px;
+          border-radius: 8px;
+          font-weight: 500;
+          transition: all 0.3s ease;
+          border: none;
+          background: #6c757d;
+          color: #f8f9fa;
+        }
+        .btn-myrequests-none:hover {
+          background: #5a6268;
+          color: #ffffff;
+          transform: translateY(-2px);
+          box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+        }
+        .btn-myrequests-new {
+          display: inline-block;
+          text-align: center;
+          padding: 10px 20px;
+          border-radius: 8px;
+          font-weight: 500;
+          transition: all 0.3s ease;
+          border: none;
+          background: #ffc107;
+          color: #212529;
+          box-shadow: 0 4px 8px rgba(255,193,7,0.4);
+          animation: pulse 2s infinite;
+        }
+        .btn-myrequests-new:hover {
+          background: #ffca2c; 
+          color: #212529;
+          box-shadow: 0 6px 12px rgba(255,193,7,0.5);
+          transform: translateY(-2px);
+        }
+        @keyframes pulse {
+          0% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
+          50% { box-shadow: 0 0 20px rgba(255,193,7,0.7); }
+          100% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
+        }
+        .btn-performance {
+          background: linear-gradient(145deg, #007bff, #0056b3);
+          color: white !important;
+          border: none;
+          padding: 12px 25px;
+          border-radius: 8px;
+          transition: all 0.3s ease;
+          position: relative;
+          overflow: hidden;
+          animation: pulseButton 2s infinite;
+        }
+        @keyframes pulseButton {
+          0% {
+            transform: scale(1);
+            box-shadow: 0 0 0 rgba(0,123,255,0.7);
+          }
+          50% {
+            transform: scale(1.05);
+            box-shadow: 0 0 10px rgba(0,123,255,0.7);
+          }
+          100% {
+            transform: scale(1);
+            box-shadow: 0 0 0 rgba(0,123,255,0.7);
+          }
+        }
+        .btn-performance:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 12px rgba(0,123,255,0.7);
+        }
+        .table-container {
+          background: #fff;
+          border-radius: 12px;
+          padding: 0.5rem;
+          box-shadow: 0 0 20px rgba(85, 209, 47, 0.1);
+        }
+        .sticky-header-table {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0;
+        }
+        .sticky-header-table thead th {
+          position: sticky;
+          top: 0;
+          z-index: 50;
+        }
+        .custom-header th {
+          background: linear-gradient(145deg, #a7c3df, #17518a);
+          color: #fff;
+          font-weight: 500;
+          padding: 10px;
+          position: relative;
+          border: none;
+          transition: all 0.3s ease;
+        }
+        .custom-header th:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+        }
+        .custom-header th:not(:last-child)::after {
+          content: '';
+          position: absolute;
+          right: 0;
+          top: 50%;
+          transform: translateY(-50%);
+          height: 60%;
+          width: 1px;
+          background: rgba(255, 255, 255, 0.1);
+        }
+        .sticky-header-table tbody tr {
+          background: #fff;
+          transition: all 0.3s;
+          position: relative;
+        }
+        .sticky-header-table tbody tr:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+          z-index: 2;
+        }
+        .sticky-header-table tbody td {
+          padding: 12px;
+          vertical-align: middle;
+          border-bottom: 1px solid #f0f0f0;
+        }
+        .table-selected-row {
+          background: #f8fbff !important;
+          box-shadow: inset 4px 0 0 rgba(80, 200, 180, 0.75);
+        }
+        .drag-handle {
+          cursor: grab;
+          opacity: 0.6;
+        }
+        .drag-handle:hover {
+          opacity: 1;
+          color: #3a6073;
+        }
+        .drag-handle:active {
+          cursor: grabbing;
+        }
+        .sortable-ghost {
+          opacity: 0.4;
+          background: #ffd9d9;
+          box-shadow: inset 0 0 10px rgba(16, 190, 83, 0.6);
+        }
+        .toggle-all-btn {
+          cursor: pointer;
+          margin-left: 8px;
+          opacity: 0.7;
+          transition: all 0.3s;
+          font-size: 1.1rem;
+        }
+        .toggle-all-btn:hover {
+          opacity: 1;
+          transform: scale(1.2);
+        }
+        /* Пагинация */
+        .pagination .page-link {
+          color: #343a40;
+          transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .pagination .page-link:hover {
+          transform: scale(1.05);
+          box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        .pagination .page-item.active .page-link {
+          background-color: #2c3e50;
+          border-color: #2c3e50;
+          color: #fff;
+        }
+      `}</style>
 		</div>
 	)
 }
