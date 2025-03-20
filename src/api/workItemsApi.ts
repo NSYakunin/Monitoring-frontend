@@ -44,7 +44,7 @@ export interface GetFilteredWorkItemsParams {
 }
 
 const apiClient = axios.create({
-	baseURL: 'http://localhost:5100', // ваш адрес бэка
+	baseURL: 'http://localhost:5100', // адрес бэка
 })
 
 apiClient.interceptors.request.use(config => {
