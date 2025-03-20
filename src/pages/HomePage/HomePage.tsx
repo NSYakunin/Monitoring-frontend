@@ -8,7 +8,7 @@ import {
 	getExecutors,
 	getApprovers,
 	getDivisionName,
-	getFilteredWorkItems, // <-- теперь возвращает PagedWorkItemsDto
+	getFilteredWorkItems, // <-- возвращает PagedWorkItemsDto
 	clearWorkItemsCache,
 	exportWorkItems,
 } from '../../api/workItemsApi'
@@ -109,11 +109,11 @@ const HomePage: React.FC = () => {
 		return `${year}-${mm}-${dd}`
 	}
 
-	// По умолчанию выберем домашний отдел из localStorage (если есть)
+	// По умолчанию возьмём "домашний" отдел из localStorage (если там сохранён)
 	const homeDivisionId = Number(localStorage.getItem('divisionId') || '0')
 
 	const [filters, setFilters] = useState<FilterState>({
-		// Ставим по умолчанию не 0, а "домашний" отдел
+		// Если хотим, можно сразу выбрать "домашний" отдел
 		selectedDivision: homeDivisionId,
 		startDate: '2014-01-01',
 		endDate: getDefaultEndDate(),
@@ -148,7 +148,7 @@ const HomePage: React.FC = () => {
 	// Текущий пользователь
 	const userName = localStorage.getItem('userName') || ''
 
-	// Название "домашнего" подразделения (всегда показывается в шапке)
+	// Название "домашнего" подразделения (всегда показываем в шапке)
 	const [homeDivName, setHomeDivName] = useState<string>('Неизвестный отдел')
 
 	// Есть ли у меня входящие заявки
@@ -168,8 +168,7 @@ const HomePage: React.FC = () => {
 			.then(async divIds => {
 				if (divIds.length === 0) return
 
-				// divIds содержит и 0 (Все подразделения), и другие ID.
-				// Для каждого запрашиваем имя отдела:
+				// Собираем (ID -> название) для каждого отдела
 				const divisionsWithNames: DivisionItem[] = []
 				for (let d of divIds) {
 					if (d === 0) {
@@ -193,24 +192,17 @@ const HomePage: React.FC = () => {
 		}
 	}, [homeDivisionId])
 
-	// При смене selectedDivision -> грузим исполнителей/принимающих
-	// (Теперь **не** блокируем их при 0, просто грузим или очищаем)
+	// Если пользователь меняет "Подразделение", то подгружаем список исполнителей/принимающих.
+	// Раньше при 0 ставили пустой массив, теперь ДЕЛАЕМ ЗАПРОС к API с divisionId=0,
+	// который вернёт всех активных пользователей (см. бэкенд).
 	useEffect(() => {
-		if (filters.selectedDivision === 0) {
-			// Если "Все подразделения" - можно либо собрать всех, либо оставить пустое,
-			// в RazorPages-беке мы брали "getAllUsersAsync". Если нужно, можете сюда
-			// вставить свой метод "getAllUsers" и заполнить.
-			setExecutorsList([])
-			setApproversList([])
-		} else {
-			getExecutors(filters.selectedDivision)
-				.then(execs => setExecutorsList(execs))
-				.catch(err => console.error(err))
+		getExecutors(filters.selectedDivision)
+			.then(execs => setExecutorsList(execs))
+			.catch(err => console.error(err))
 
-			getApprovers(filters.selectedDivision)
-				.then(apprs => setApproversList(apprs))
-				.catch(err => console.error(err))
-		}
+		getApprovers(filters.selectedDivision)
+			.then(apprs => setApproversList(apprs))
+			.catch(err => console.error(err))
 	}, [filters.selectedDivision])
 
 	// При любом изменении фильтров -> сбрасываем страницу в 1 -> перезагружаем
@@ -225,13 +217,13 @@ const HomePage: React.FC = () => {
 		filters.search,
 	])
 
-	// Когда currentPage или сами фильтры меняются -> грузим workItems
+	// Когда currentPage или сами фильтры меняются -> грузим workItems и уведомления
 	useEffect(() => {
 		loadWorkItems()
 		loadNotifications(filters.selectedDivision)
 	}, [paging.currentPage, filters])
 
-	// Проверяем есть ли входящие заявки
+	// Проверяем есть ли входящие заявки (чтобы показывать "Входящие заявки" оранжевым)
 	useEffect(() => {
 		getMyRequests()
 			.then(data => {
@@ -248,7 +240,9 @@ const HomePage: React.FC = () => {
 	}, [])
 
 	const loadNotifications = (divisionId: number) => {
-		// Если divisionId=0, в вашем случае можно ничего не грузить
+		// Если divisionId=0, по задаче в RazorPages мы брали первый доступный отдел,
+		// но здесь упрощённо можно ничего не выводить, или же
+		// пусть "нет уведомлений" (как минимум).
 		if (divisionId === 0) {
 			setNotifications([])
 			return
@@ -270,17 +264,13 @@ const HomePage: React.FC = () => {
 			pageSize: paging.pageSize,
 		})
 			.then(res => {
-				// res - это PagedWorkItemsDto
 				const { items, currentPage, totalPages, totalCount, pageSize } = res
-
-				// Преобразуем items -> у каждого добавим id
 				const rows = items.map((w, index) => ({
 					...w,
 					id: w.documentNumber || 'row_' + index,
 				}))
 
 				setWorkItems(rows)
-
 				setPaging({
 					currentPage,
 					pageSize,
@@ -341,15 +331,12 @@ const HomePage: React.FC = () => {
 			row => !selectedDocs.includes(row.documentNumber)
 		)
 		if (anyUnchecked) {
-			// Выбираем все
 			const allDocsOnThisPage = workItems.map(r => r.documentNumber)
 			setSelectedDocs(prev => {
-				// Объединим
 				const setUnion = new Set([...prev, ...allDocsOnThisPage])
 				return Array.from(setUnion)
 			})
 		} else {
-			// Снимаем выделение для текущей страницы
 			const allDocsOnThisPage = workItems.map(r => r.documentNumber)
 			setSelectedDocs(prev => prev.filter(x => !allDocsOnThisPage.includes(x)))
 		}
@@ -367,8 +354,6 @@ const HomePage: React.FC = () => {
 	}
 
 	// Экспорт
-	// Теперь берём ВСЕ выбранные docNumbers из selectedDocs, а не только с текущей страницы.
-	// Если ничего не выбрано - отправляем пустой массив => бэкенд вернёт всё.
 	const handleExport = (format: string) => {
 		let finalSelection = selectedDocs
 		if (selectedDocs.length === 0) {
@@ -533,7 +518,6 @@ const HomePage: React.FC = () => {
 										value={filters.executor}
 										onChange={handleChange}
 										className='form-select'
-										// Больше не отключаем, если selectedDivision=0
 									>
 										<option value=''>Все исполнители</option>
 										{executorsList.map(e => (
@@ -553,7 +537,6 @@ const HomePage: React.FC = () => {
 										value={filters.approver}
 										onChange={handleChange}
 										className='form-select'
-										// Больше не отключаем, если selectedDivision=0
 									>
 										<option value=''>Все принимающие</option>
 										{approversList.map(a => (
@@ -804,11 +787,9 @@ const HomePage: React.FC = () => {
 									handle='.drag-handle'
 								>
 									{workItems.map((item, index) => {
-										// Определяем, выделен ли данный docNumber в глобальном массиве selectedDocs
 										const isSelected = selectedDocs.includes(
 											item.documentNumber
 										)
-
 										let rowClass = item.highlightCssClass || ''
 										if (isSelected) {
 											rowClass += ' table-selected-row'
