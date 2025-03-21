@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { ReactSortable } from 'react-sortablejs'
+import RequestModal from '../../components/RequestModal'
 
-// Импорт api-функций
+// Импорт API-функций
 import {
 	getAllowedDivisions,
 	getExecutors,
 	getApprovers,
 	getDivisionName,
-	getFilteredWorkItems, // <-- возвращает PagedWorkItemsDto
+	getFilteredWorkItems, // возвращает PagedWorkItemsDto
 	clearWorkItemsCache,
 	exportWorkItems,
 } from '../../api/workItemsApi'
@@ -17,12 +19,9 @@ import {
 	getActiveNotifications,
 	NotificationDto,
 } from '../../api/notificationsApi'
-
 import { getMyRequests } from '../../api/myRequestsApi'
-import { ReactSortable } from 'react-sortablejs'
-import RequestModal from '../../components/RequestModal'
 
-// Интерфейс, который приходит в ответ на getFilteredWorkItems:
+// Интерфейсы, которые приходят от API
 interface PagedWorkItemsDto {
 	items: WorkItemRow[]
 	currentPage: number
@@ -49,8 +48,7 @@ export interface WorkItemRow {
 	userPendingProposedDate?: string
 	userPendingRequestNote?: string
 	userPendingReceiver?: string
-
-	// Поля для удобства в таблице (нужны, чтобы sortable работал):
+	// Дополнительное поле для работы ReactSortable:
 	id: string
 }
 
@@ -77,6 +75,23 @@ interface PagingState {
 	totalCount: number
 }
 
+/**
+ * Пользовательский хук для дебаунса значения.
+ * Позволяет отложить применение изменения на delay мс.
+ */
+function useDebounce<T>(value: T, delay: number): T {
+	const [debouncedValue, setDebouncedValue] = useState<T>(value)
+	useEffect(() => {
+		const handler = setTimeout(() => {
+			setDebouncedValue(value)
+		}, delay)
+		return () => {
+			clearTimeout(handler)
+		}
+	}, [value, delay])
+	return debouncedValue
+}
+
 const HomePage: React.FC = () => {
 	const navigate = useNavigate()
 
@@ -85,18 +100,21 @@ const HomePage: React.FC = () => {
 	// Список отделов
 	const [allowedDivisions, setAllowedDivisions] = useState<DivisionItem[]>([])
 
-	// Список исполнителей, принимающих
+	// Списки исполнителей и принимающих
 	const [executorsList, setExecutorsList] = useState<string[]>([])
 	const [approversList, setApproversList] = useState<string[]>([])
 
 	// Список уведомлений
 	const [notifications, setNotifications] = useState<NotificationDto[]>([])
 
-	// Список работ (только текущая страница!)
+	// Список работ (только текущая страница)
 	const [workItems, setWorkItems] = useState<WorkItemRow[]>([])
 
 	// Глобальный список выбранных DocumentNumber для экспорта (аккумулируется со всех страниц)
 	const [selectedDocs, setSelectedDocs] = useState<string[]>([])
+
+	// По умолчанию берем "домашний" отдел из localStorage
+	const homeDivisionId = Number(localStorage.getItem('divisionId') || '0')
 
 	// Фильтры
 	const getDefaultEndDate = () => {
@@ -109,11 +127,7 @@ const HomePage: React.FC = () => {
 		return `${year}-${mm}-${dd}`
 	}
 
-	// По умолчанию возьмём "домашний" отдел из localStorage (если там сохранён)
-	const homeDivisionId = Number(localStorage.getItem('divisionId') || '0')
-
 	const [filters, setFilters] = useState<FilterState>({
-		// Если хотим, можно сразу выбрать "домашний" отдел
 		selectedDivision: homeDivisionId,
 		startDate: '2014-01-01',
 		endDate: getDefaultEndDate(),
@@ -122,7 +136,7 @@ const HomePage: React.FC = () => {
 		search: '',
 	})
 
-	// Пагинация
+	// Для пагинации
 	const [paging, setPaging] = useState<PagingState>({
 		currentPage: 1,
 		totalPages: 1,
@@ -130,10 +144,10 @@ const HomePage: React.FC = () => {
 		totalCount: 0,
 	})
 
-	// Для показа/скрытия модалки RequestModal
+	// Для показа/скрытия модального окна RequestModal
 	const [showRequestModal, setShowRequestModal] = useState(false)
 
-	// Поля для модалки (заявки)
+	// Поля для модального окна (заявки)
 	const [modalRequestId, setModalRequestId] = useState<number | undefined>()
 	const [modalDocNumber, setModalDocNumber] = useState<string>('')
 	const [modalReqType, setModalReqType] = useState<string>('')
@@ -141,34 +155,41 @@ const HomePage: React.FC = () => {
 	const [modalReqNote, setModalReqNote] = useState<string>('')
 	const [modalReceiver, setModalReceiver] = useState<string>('')
 
-	// Контролирующий и принимающий для строки (для модалки)
+	// Поля для строки (для модального окна)
 	const [rowController, setRowController] = useState<string>('')
 	const [rowApprover, setRowApprover] = useState<string>('')
 
 	// Текущий пользователь
 	const userName = localStorage.getItem('userName') || ''
 
-	// Название "домашнего" подразделения (всегда показываем в шапке)
+	// Название домашнего подразделения (для шапки)
 	const [homeDivName, setHomeDivName] = useState<string>('Неизвестный отдел')
 
-	// Есть ли у меня входящие заявки
+	// Флаг наличия входящих заявок
 	const [hasPendingRequests, setHasPendingRequests] = useState<boolean>(false)
+
+	// ----- Доработка: дебаунс для поля поиска -----
+	const debouncedSearch = useDebounce(filters.search, 800)
+	// Если значение не пустое, но содержит менее 3 символов, то используем пустую строку для фильтрации.
+	const effectiveSearch =
+		debouncedSearch && debouncedSearch.length < 3 ? '' : debouncedSearch
 
 	// ----- Хуки загрузки -----
 
-	// Загружаем список "доступных отделов" при маунте
+	// Проверка авторизации при маунте
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
 		if (!token) {
 			navigate('/login')
 			return
 		}
+	}, [navigate])
 
+	// Загружаем список доступных отделов при маунте
+	useEffect(() => {
 		getAllowedDivisions()
 			.then(async divIds => {
 				if (divIds.length === 0) return
-
-				// Собираем (ID -> название) для каждого отдела
 				const divisionsWithNames: DivisionItem[] = []
 				for (let d of divIds) {
 					if (d === 0) {
@@ -181,7 +202,7 @@ const HomePage: React.FC = () => {
 				setAllowedDivisions(divisionsWithNames)
 			})
 			.catch(err => console.error(err))
-	}, [navigate])
+	}, [])
 
 	// Загружаем имя домашнего отдела (для шапки)
 	useEffect(() => {
@@ -192,9 +213,7 @@ const HomePage: React.FC = () => {
 		}
 	}, [homeDivisionId])
 
-	// Если пользователь меняет "Подразделение", то подгружаем список исполнителей/принимающих.
-	// Раньше при 0 ставили пустой массив, теперь ДЕЛАЕМ ЗАПРОС к API с divisionId=0,
-	// который вернёт всех активных пользователей (см. бэкенд).
+	// При изменении выбранного отдела – подгружаем списки исполнителей и принимающих
 	useEffect(() => {
 		getExecutors(filters.selectedDivision)
 			.then(execs => setExecutorsList(execs))
@@ -205,7 +224,7 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error(err))
 	}, [filters.selectedDivision])
 
-	// При любом изменении фильтров -> сбрасываем страницу в 1 -> перезагружаем
+	// При изменении каких-либо фильтров (кроме search, который у нас дебаунсится отдельно) – сбрасываем страницу в 1
 	useEffect(() => {
 		setPaging(prev => ({ ...prev, currentPage: 1 }))
 	}, [
@@ -214,24 +233,33 @@ const HomePage: React.FC = () => {
 		filters.endDate,
 		filters.executor,
 		filters.approver,
-		filters.search,
+		// НЕ добавляем filters.search сюда, т.к. используем effectiveSearch
 	])
 
-	// Когда currentPage или сами фильтры меняются -> грузим workItems и уведомления
+	// При изменении effectiveSearch тоже сбрасываем страницу
+	useEffect(() => {
+		setPaging(prev => ({ ...prev, currentPage: 1 }))
+	}, [effectiveSearch])
+
+	// Загружаем данные (workItems и уведомления) при изменении пагинации или фильтров
 	useEffect(() => {
 		loadWorkItems()
 		loadNotifications(filters.selectedDivision)
-	}, [paging.currentPage, filters])
+	}, [
+		paging.currentPage,
+		filters.selectedDivision,
+		filters.startDate,
+		filters.endDate,
+		filters.executor,
+		filters.approver,
+		effectiveSearch, // использовать дебаунс
+	])
 
-	// Проверяем есть ли входящие заявки (чтобы показывать "Входящие заявки" оранжевым)
+	// Проверяем наличие входящих заявок
 	useEffect(() => {
 		getMyRequests()
 			.then(data => {
-				if (data && data.length > 0) {
-					setHasPendingRequests(true)
-				} else {
-					setHasPendingRequests(false)
-				}
+				setHasPendingRequests(data && data.length > 0)
 			})
 			.catch(err => {
 				console.error('Ошибка getMyRequests:', err)
@@ -240,9 +268,6 @@ const HomePage: React.FC = () => {
 	}, [])
 
 	const loadNotifications = (divisionId: number) => {
-		// Если divisionId=0, по задаче в RazorPages мы брали первый доступный отдел,
-		// но здесь упрощённо можно ничего не выводить, или же
-		// пусть "нет уведомлений" (как минимум).
 		if (divisionId === 0) {
 			setNotifications([])
 			return
@@ -252,13 +277,15 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error('Ошибка уведомлений:', err))
 	}
 
+	// Функция загрузки работ с учетом фильтров и пагинации
 	const loadWorkItems = () => {
 		getFilteredWorkItems({
 			startDate: filters.startDate,
 			endDate: filters.endDate,
 			executor: filters.executor,
 			approver: filters.approver,
-			search: filters.search,
+			// Используем effectiveSearch вместо filters.search (с учетом минимальной длины)
+			search: effectiveSearch,
 			divisionId: filters.selectedDivision,
 			pageNumber: paging.currentPage,
 			pageSize: paging.pageSize,
@@ -269,7 +296,6 @@ const HomePage: React.FC = () => {
 					...w,
 					id: w.documentNumber || 'row_' + index,
 				}))
-
 				setWorkItems(rows)
 				setPaging({
 					currentPage,
@@ -311,14 +337,12 @@ const HomePage: React.FC = () => {
 			.catch(err => console.error(err))
 	}
 
-	// Функция, которая добавляет или убирает docNumber из глобального списка selectedDocs
+	// Функция для добавления/удаления documentNumber в глобальном списке selectedDocs
 	const toggleGlobalSelection = (docNumber: string) => {
 		setSelectedDocs(prev => {
 			if (prev.includes(docNumber)) {
-				// убрать
 				return prev.filter(x => x !== docNumber)
 			} else {
-				// добавить
 				return [...prev, docNumber]
 			}
 		})
@@ -326,23 +350,21 @@ const HomePage: React.FC = () => {
 
 	// Выбрать/снять все на текущей странице
 	const toggleSelectAll = () => {
-		// Проверяем, есть ли хоть одна строка, которая ещё не выбрана
 		const anyUnchecked = workItems.some(
 			row => !selectedDocs.includes(row.documentNumber)
 		)
 		if (anyUnchecked) {
 			const allDocsOnThisPage = workItems.map(r => r.documentNumber)
-			setSelectedDocs(prev => {
-				const setUnion = new Set([...prev, ...allDocsOnThisPage])
-				return Array.from(setUnion)
-			})
+			setSelectedDocs(prev =>
+				Array.from(new Set([...prev, ...allDocsOnThisPage]))
+			)
 		} else {
 			const allDocsOnThisPage = workItems.map(r => r.documentNumber)
 			setSelectedDocs(prev => prev.filter(x => !allDocsOnThisPage.includes(x)))
 		}
 	}
 
-	// Клик по строке (если не по кнопке редактирования)
+	// Обработчик клика по строке (если не на кнопке редактирования)
 	const handleRowClick = (row: WorkItemRow, e: React.MouseEvent) => {
 		const tag = (e.target as HTMLElement).tagName.toLowerCase()
 		if (tag === 'button' || tag === 'input' || tag === 'i') return
@@ -353,14 +375,12 @@ const HomePage: React.FC = () => {
 		setWorkItems(newState)
 	}
 
-	// Экспорт
+	// Экспорт данных
 	const handleExport = (format: string) => {
 		let finalSelection = selectedDocs
 		if (selectedDocs.length === 0) {
-			// Если ничего не выбрано, бэкенд выгрузит все
 			finalSelection = []
 		}
-
 		const body = {
 			format,
 			selectedItems: finalSelection,
@@ -368,28 +388,25 @@ const HomePage: React.FC = () => {
 			endDate: filters.endDate || null,
 			executor: filters.executor,
 			approver: filters.approver,
-			search: filters.search,
+			search: effectiveSearch,
 			divisionId: filters.selectedDivision,
 		}
-
 		exportWorkItems(body)
 			.then(res => {
 				const blob = new Blob([res], { type: 'content-type' })
 				const url = window.URL.createObjectURL(blob)
 				const link = document.createElement('a')
 				link.href = url
-
 				if (format === 'pdf') link.download = 'Export.pdf'
 				else if (format === 'excel') link.download = 'Export.xlsx'
 				else link.download = 'Export.docx'
-
 				link.click()
 				URL.revokeObjectURL(url)
 			})
 			.catch(err => console.error('Ошибка при экспорте:', err))
 	}
 
-	// ----- Модалка "Заявка" -----
+	// Модальное окно "Заявка"
 	const openRequestModal = (row: WorkItemRow) => {
 		if (!row.executor.includes(userName)) {
 			alert('Вы не являетесь исполнителем для этой работы.')
@@ -398,7 +415,6 @@ const HomePage: React.FC = () => {
 		setModalDocNumber(row.documentNumber)
 		setRowController(row.controller || '')
 		setRowApprover(row.approver || '')
-
 		if (row.userPendingRequestId) {
 			setModalRequestId(row.userPendingRequestId)
 			setModalReqType(row.userPendingRequestType || 'корр1')
@@ -424,7 +440,6 @@ const HomePage: React.FC = () => {
 		loadWorkItems()
 	}
 
-	// Переход на страницу "Исполнительность"
 	const handlePerformance = () => {
 		navigate('/performance')
 	}
@@ -440,7 +455,7 @@ const HomePage: React.FC = () => {
 		return `${day}.${month}.${year}`
 	}
 
-	// Обработчик смены страницы при пагинации
+	// Обработчик смены страницы
 	const handlePageChange = (newPage: number) => {
 		if (newPage < 1 || newPage > paging.totalPages) return
 		setPaging(prev => ({ ...prev, currentPage: newPage }))
@@ -452,7 +467,7 @@ const HomePage: React.FC = () => {
 			style={{ animation: 'fadeInUp 0.5s ease forwards', opacity: 0 }}
 		>
 			<div className='container-fluid mt-4'>
-				{/* Шапка — здесь всегда показываем родное подразделение (homeDivName) */}
+				{/* Шапка с информацией о подразделении и фильтрах */}
 				<div className='row mb-4'>
 					<div className='col-12'>
 						<div className='d-flex flex-wrap align-items-center justify-content-between bg-light p-3 rounded header-top-block'>
@@ -462,8 +477,7 @@ const HomePage: React.FC = () => {
 									Текущий пользователь: {userName}
 								</p>
 							</div>
-
-							{/* Фильтры */}
+							{/* Форма фильтров */}
 							<form className='d-flex flex-wrap align-items-end gap-2 filterForm'>
 								<div className='d-flex flex-column'>
 									<label htmlFor='startDate' className='form-label'>
@@ -556,11 +570,10 @@ const HomePage: React.FC = () => {
 										id='search'
 										name='search'
 										value={filters.search}
-										placeholder='Поиск...'
+										placeholder='Введите минимум 3 символа...'
 										onChange={handleChange}
 									/>
 								</div>
-
 								<div className='d-flex justify-content-end gap-3 mb-4'>
 									<button
 										type='button'
@@ -569,7 +582,6 @@ const HomePage: React.FC = () => {
 									>
 										Обновить
 									</button>
-
 									<button
 										type='button'
 										className='btn btn-logout'
@@ -583,7 +595,7 @@ const HomePage: React.FC = () => {
 					</div>
 				</div>
 
-				{/* Второй ряд: уведомления + чек + входящие заявки + Исполнительность */}
+				{/* Второй ряд: уведомления, чек и входящие заявки */}
 				<div className='row mb-3 gx-3' style={{ minHeight: '50px' }}>
 					<div className='col d-flex flex-column'>
 						<div
@@ -680,14 +692,12 @@ const HomePage: React.FC = () => {
 							Входящие заявки
 						</button>
 
-						{/* Кнопка "Исполнительность" */}
 						<button className='btn btn-performance' onClick={handlePerformance}>
 							Исполнительность
 						</button>
 					</div>
 				</div>
 
-				{/* ТАБЛИЦА + ПАГИНАЦИЯ */}
 				{/* Верхняя пагинация */}
 				{paging.totalPages > 1 && (
 					<div className='row mb-2'>
@@ -750,6 +760,7 @@ const HomePage: React.FC = () => {
 					</div>
 				)}
 
+				{/* Таблица с работами */}
 				<div className='row mb-4'>
 					<div className='col-12'>
 						<div className='table-container table-responsive'>
@@ -794,7 +805,6 @@ const HomePage: React.FC = () => {
 										if (isSelected) {
 											rowClass += ' table-selected-row'
 										}
-
 										return (
 											<tr
 												key={item.id}
@@ -921,7 +931,7 @@ const HomePage: React.FC = () => {
 				)}
 			</div>
 
-			{/* Модалка RequestModal */}
+			{/* Модальное окно RequestModal */}
 			{showRequestModal && (
 				<RequestModal
 					requestId={modalRequestId}
@@ -940,223 +950,222 @@ const HomePage: React.FC = () => {
 
 			{/* Стили */}
 			<style>{`
-        @keyframes fadeInUp {
-          0% {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .header-top-block {
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-        }
-        .filterForm .form-label {
-          font-weight: 500;
-        }
-        .btn-logout {
-          border: 2px solid #dc3545;
-          color: #dc3545;
-          background: transparent;
-          padding: 6px 12px;
-          border-radius: 8px;
-          transition: all 0.4s ease;
-          position: relative;
-        }
-        .btn-logout:hover {
-          background: rgba(220, 53, 69, 0.9);
-          color: white !important;
-          border-color: transparent;
-          box-shadow: 0 4px 8px rgba(220,53,69,0.3);
-        }
-        .btn-pdf {
-          background: linear-gradient(145deg, #2c3e50, #34495e);
-          color: white !important;
-          border: none;
-          padding: 10px 20px;
-          border-radius: 8px;
-          transition: all 0.3s ease;
-          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-          position: relative;
-          overflow: hidden;
-        }
-        .btn-pdf:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 12px rgba(0,0,0,0.2);
-          background: linear-gradient(145deg, #34495e, #2c3e50);
-        }
-        .btn-myrequests-none {
-          display: inline-block;
-          text-align: center;
-          padding: 10px 20px;
-          border-radius: 8px;
-          font-weight: 500;
-          transition: all 0.3s ease;
-          border: none;
-          background: #6c757d;
-          color: #f8f9fa;
-        }
-        .btn-myrequests-none:hover {
-          background: #5a6268;
-          color: #ffffff;
-          transform: translateY(-2px);
-          box-shadow: 0 6px 12px rgba(0,0,0,0.2);
-        }
-        .btn-myrequests-new {
-          display: inline-block;
-          text-align: center;
-          padding: 10px 20px;
-          border-radius: 8px;
-          font-weight: 500;
-          transition: all 0.3s ease;
-          border: none;
-          background: #ffc107;
-          color: #212529;
-          box-shadow: 0 4px 8px rgba(255,193,7,0.4);
-          animation: pulse 2s infinite;
-        }
-        .btn-myrequests-new:hover {
-          background: #ffca2c; 
-          color: #212529;
-          box-shadow: 0 6px 12px rgba(255,193,7,0.5);
-          transform: translateY(-2px);
-        }
-        @keyframes pulse {
-          0% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
-          50% { box-shadow: 0 0 20px rgba(255,193,7,0.7); }
-          100% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
-        }
-        .btn-performance {
-          background: linear-gradient(145deg, #007bff, #0056b3);
-          color: white !important;
-          border: none;
-          padding: 12px 25px;
-          border-radius: 8px;
-          transition: all 0.3s ease;
-          position: relative;
-          overflow: hidden;
-          animation: pulseButton 2s infinite;
-        }
-        @keyframes pulseButton {
-          0% {
-            transform: scale(1);
-            box-shadow: 0 0 0 rgba(0,123,255,0.7);
-          }
-          50% {
-            transform: scale(1.05);
-            box-shadow: 0 0 10px rgba(0,123,255,0.7);
-          }
-          100% {
-            transform: scale(1);
-            box-shadow: 0 0 0 rgba(0,123,255,0.7);
-          }
-        }
-        .btn-performance:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 12px rgba(0,123,255,0.7);
-        }
-        .table-container {
-          background: #fff;
-          border-radius: 12px;
-          padding: 0.5rem;
-          box-shadow: 0 0 20px rgba(85, 209, 47, 0.1);
-        }
-        .sticky-header-table {
-          width: 100%;
-          border-collapse: separate;
-          border-spacing: 0;
-        }
-        .sticky-header-table thead th {
-          position: sticky;
-          top: 0;
-          z-index: 50;
-        }
-        .custom-header th {
-          background: linear-gradient(145deg, #a7c3df, #17518a);
-          color: #fff;
-          font-weight: 500;
-          padding: 10px;
-          position: relative;
-          border: none;
-          transition: all 0.3s ease;
-        }
-        .custom-header th:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 10px rgba(0,0,0,0.15);
-        }
-        .custom-header th:not(:last-child)::after {
-          content: '';
-          position: absolute;
-          right: 0;
-          top: 50%;
-          transform: translateY(-50%);
-          height: 60%;
-          width: 1px;
-          background: rgba(255, 255, 255, 0.1);
-        }
-        .sticky-header-table tbody tr {
-          background: #fff;
-          transition: all 0.3s;
-          position: relative;
-        }
-        .sticky-header-table tbody tr:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-          z-index: 2;
-        }
-        .sticky-header-table tbody td {
-          padding: 12px;
-          vertical-align: middle;
-          border-bottom: 1px solid #f0f0f0;
-        }
-        .table-selected-row {
-          background: #f8fbff !important;
-          box-shadow: inset 4px 0 0 rgba(80, 200, 180, 0.75);
-        }
-        .drag-handle {
-          cursor: grab;
-          opacity: 0.6;
-        }
-        .drag-handle:hover {
-          opacity: 1;
-          color: #3a6073;
-        }
-        .drag-handle:active {
-          cursor: grabbing;
-        }
-        .sortable-ghost {
-          opacity: 0.4;
-          background: #ffd9d9;
-          box-shadow: inset 0 0 10px rgba(16, 190, 83, 0.6);
-        }
-        .toggle-all-btn {
-          cursor: pointer;
-          margin-left: 8px;
-          opacity: 0.7;
-          transition: all 0.3s;
-          font-size: 1.1rem;
-        }
-        .toggle-all-btn:hover {
-          opacity: 1;
-          transform: scale(1.2);
-        }
-        /* Пагинация */
-        .pagination .page-link {
-          color: #343a40;
-          transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .pagination .page-link:hover {
-          transform: scale(1.05);
-          box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-        }
-        .pagination .page-item.active .page-link {
-          background-color: #2c3e50;
-          border-color: #2c3e50;
-          color: #fff;
-        }
-      `}</style>
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.header-top-block {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+.filterForm .form-label {
+  font-weight: 500;
+}
+.btn-logout {
+  border: 2px solid #dc3545;
+  color: #dc3545;
+  background: transparent;
+  padding: 6px 12px;
+  border-radius: 8px;
+  transition: all 0.4s ease;
+  position: relative;
+}
+.btn-logout:hover {
+  background: rgba(220, 53, 69, 0.9);
+  color: white !important;
+  border-color: transparent;
+  box-shadow: 0 4px 8px rgba(220,53,69,0.3);
+}
+.btn-pdf {
+  background: linear-gradient(145deg, #2c3e50, #34495e);
+  color: white !important;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  position: relative;
+  overflow: hidden;
+}
+.btn-pdf:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+  background: linear-gradient(145deg, #34495e, #2c3e50);
+}
+.btn-myrequests-none {
+  display: inline-block;
+  text-align: center;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  border: none;
+  background: #6c757d;
+  color: #f8f9fa;
+}
+.btn-myrequests-none:hover {
+  background: #5a6268;
+  color: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+}
+.btn-myrequests-new {
+  display: inline-block;
+  text-align: center;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  border: none;
+  background: #ffc107;
+  color: #212529;
+  box-shadow: 0 4px 8px rgba(255,193,7,0.4);
+  animation: pulse 2s infinite;
+}
+.btn-myrequests-new:hover {
+  background: #ffca2c;
+  color: #212529;
+  box-shadow: 0 6px 12px rgba(255,193,7,0.5);
+  transform: translateY(-2px);
+}
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
+  50% { box-shadow: 0 0 20px rgba(255,193,7,0.7); }
+  100% { box-shadow: 0 0 0 rgba(255,193,7,0.5); }
+}
+.btn-performance {
+  background: linear-gradient(145deg, #007bff, #0056b3);
+  color: white !important;
+  border: none;
+  padding: 12px 25px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  animation: pulseButton 2s infinite;
+}
+@keyframes pulseButton {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(0,123,255,0.7);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 10px rgba(0,123,255,0.7);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(0,123,255,0.7);
+  }
+}
+.btn-performance:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0,123,255,0.7);
+}
+.table-container {
+  background: #fff;
+  border-radius: 12px;
+  padding: 0.5rem;
+  box-shadow: 0 0 20px rgba(85, 209, 47, 0.1);
+}
+.sticky-header-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.sticky-header-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.custom-header th {
+  background: linear-gradient(145deg, #a7c3df, #17518a);
+  color: #fff;
+  font-weight: 500;
+  padding: 10px;
+  position: relative;
+  border: none;
+  transition: all 0.3s ease;
+}
+.custom-header th:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+.custom-header th:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 60%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.sticky-header-table tbody tr {
+  background: #fff;
+  transition: all 0.3s;
+  position: relative;
+}
+.sticky-header-table tbody tr:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  z-index: 2;
+}
+.sticky-header-table tbody td {
+  padding: 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid #f0f0f0;
+}
+.table-selected-row {
+  background: #f8fbff !important;
+  box-shadow: inset 4px 0 0 rgba(80, 200, 180, 0.75);
+}
+.drag-handle {
+  cursor: grab;
+  opacity: 0.6;
+}
+.drag-handle:hover {
+  opacity: 1;
+  color: #3a6073;
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+.sortable-ghost {
+  opacity: 0.4;
+  background: #ffd9d9;
+  box-shadow: inset 0 0 10px rgba(16, 190, 83, 0.6);
+}
+.toggle-all-btn {
+  cursor: pointer;
+  margin-left: 8px;
+  opacity: 0.7;
+  transition: all 0.3s;
+  font-size: 1.1rem;
+}
+.toggle-all-btn:hover {
+  opacity: 1;
+  transform: scale(1.2);
+}
+.pagination .page-link {
+  color: #343a40;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.pagination .page-link:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+.pagination .page-item.active .page-link {
+  background-color: #2c3e50;
+  border-color: #2c3e50;
+  color: #fff;
+}
+`}</style>
 		</div>
 	)
 }
