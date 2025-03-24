@@ -570,7 +570,7 @@ const HomePage: React.FC = () => {
 										id='search'
 										name='search'
 										value={filters.search}
-										placeholder='Введите минимум 3 символа...'
+										placeholder='Минимум 3 символа...'
 										onChange={handleChange}
 									/>
 								</div>
