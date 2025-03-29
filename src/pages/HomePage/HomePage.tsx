@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { ReactSortable } from 'react-sortablejs'
 import RequestModal from '../../components/RequestModal'
+import ChatWidget from '../../components/ChatWidget'
 
 // Импорт API-функций
 import {
@@ -466,6 +467,7 @@ const HomePage: React.FC = () => {
 			className='home-container'
 			style={{ animation: 'fadeInUp 0.5s ease forwards', opacity: 0 }}
 		>
+			<ChatWidget />
 			<div className='container-fluid mt-4'>
 				{/* Шапка с информацией о подразделении и фильтрах */}
 				<div className='row mb-4'>
