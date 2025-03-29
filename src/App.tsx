@@ -6,6 +6,7 @@ import HomePage from './pages/HomePage/HomePage'
 import LoginPage from './pages/LoginPage/LoginPage'
 import MyRequestsPage from './pages/MyRequestsPage/MyRequestsPage'
 import SettingsPage from './pages/SettingsPage/SettingsPage'
+import PerformancePage from './pages/PerformancePage/PerformancePage' // <-- импортируем
 
 const NotFoundPage: React.FC = () => <div>Страница не найдена</div>
 
@@ -18,6 +19,8 @@ function App() {
 					<Route path='/' element={<HomePage />} />
 					<Route path='/my-requests' element={<MyRequestsPage />} />
 					<Route path='/settings' element={<SettingsPage />} />
+					<Route path='/performance' element={<PerformancePage />} />{' '}
+					{/* НОВЫЙ РОУТ */}
 					<Route path='*' element={<NotFoundPage />} />
 				</Routes>
 			</Layout>

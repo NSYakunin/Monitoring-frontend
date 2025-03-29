@@ -1,6 +1,6 @@
 .layout-main {
   /* Можно добавить анимацию появления содержимого, если хотите */
-  /* animation: fadeInUp 0.5s ease forwards; */
+  animation: fadeInUp 0.5s ease forwards;
 }
 
 /* Подвал */

@@ -1,7 +1,9 @@
+// src/pages/LoginPage/LoginPage.tsx
+
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-// Допустим, у вас есть api функции
+// Допустим, у вас есть api-функции
 import { filterUsers, login } from '../../api/authApi'
 import './LoginPage.css'
 

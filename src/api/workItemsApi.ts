@@ -1,5 +1,8 @@
+// workItemsApi.ts
+
 import axios from 'axios'
 
+// Интерфейс, который возвращает бэкенд
 export interface WorkItemDto {
 	documentNumber: string
 	documentName: string
@@ -12,10 +15,36 @@ export interface WorkItemDto {
 	korrect2?: string
 	korrect3?: string
 	factDate?: string
+	highlightCssClass?: string
+	userPendingRequestId?: number
+	userPendingRequestType?: string
+	userPendingProposedDate?: string
+	userPendingRequestNote?: string
+	userPendingReceiver?: string
+}
+
+export interface PagedWorkItemsDto {
+	items: WorkItemDto[]
+	currentPage: number
+	pageSize: number
+	totalPages: number
+	totalCount: number
+}
+
+// Параметры для GET
+export interface GetFilteredWorkItemsParams {
+	startDate?: string
+	endDate?: string
+	executor?: string
+	approver?: string
+	search?: string
+	divisionId?: number
+	pageNumber?: number
+	pageSize?: number
 }
 
 const apiClient = axios.create({
-	baseURL: 'http://localhost:5100', // ваш адрес бэка
+	baseURL: 'http://localhost:5100', // адрес бэка
 })
 
 apiClient.interceptors.request.use(config => {
@@ -26,35 +55,29 @@ apiClient.interceptors.request.use(config => {
 	return config
 })
 
-// Подгружаем список работ
 export async function getFilteredWorkItems(
-	startDate?: string,
-	endDate?: string,
-	executor?: string,
-	approver?: string,
-	search?: string,
-	divisionId?: number
-): Promise<WorkItemDto[]> {
-	const resp = await apiClient.get<WorkItemDto[]>('/api/WorkItems', {
+	params: GetFilteredWorkItemsParams
+): Promise<PagedWorkItemsDto> {
+	const resp = await apiClient.get<PagedWorkItemsDto>('/api/WorkItems', {
 		params: {
-			startDate,
-			endDate,
-			executor,
-			approver,
-			search,
-			divisionId,
+			startDate: params.startDate,
+			endDate: params.endDate,
+			executor: params.executor,
+			approver: params.approver,
+			search: params.search,
+			divisionId: params.divisionId,
+			pageNumber: params.pageNumber,
+			pageSize: params.pageSize,
 		},
 	})
 	return resp.data
 }
 
-// Список доступных отделов
 export async function getAllowedDivisions(): Promise<number[]> {
 	const resp = await apiClient.get<number[]>('/api/WorkItems/AllowedDivisions')
 	return resp.data
 }
 
-// Список исполнителей
 export async function getExecutors(divisionId: number): Promise<string[]> {
 	const resp = await apiClient.get<string[]>('/api/WorkItems/Executors', {
 		params: { divisionId },
@@ -62,7 +85,6 @@ export async function getExecutors(divisionId: number): Promise<string[]> {
 	return resp.data
 }
 
-// Список принимающих
 export async function getApprovers(divisionId: number): Promise<string[]> {
 	const resp = await apiClient.get<string[]>('/api/WorkItems/Approvers', {
 		params: { divisionId },
@@ -70,15 +92,21 @@ export async function getApprovers(divisionId: number): Promise<string[]> {
 	return resp.data
 }
 
-// Сброс кэша
 export async function clearWorkItemsCache(divisionId: number): Promise<void> {
 	await apiClient.post(`/api/WorkItems/ClearCache?divisionId=${divisionId}`)
 }
 
-// НОВОЕ: Получить название отдела
 export async function getDivisionName(divisionId: number): Promise<string> {
 	const resp = await apiClient.get<string>('/api/WorkItems/DivisionName', {
 		params: { divisionId },
+	})
+	return resp.data
+}
+
+// Экспорт
+export async function exportWorkItems(body: any): Promise<Blob> {
+	const resp = await apiClient.post('/api/WorkItems/Export', body, {
+		responseType: 'blob',
 	})
 	return resp.data
 }
