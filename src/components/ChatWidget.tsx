@@ -3,13 +3,10 @@ import {
 	HubConnection,
 	HubConnectionBuilder,
 	LogLevel,
+	HubConnectionState,
 } from '@microsoft/signalr'
 
-/**
- * Тип сообщения в чате.
- * Мы можем хранить и текст, и файл в одном объекте,
- * различая их по полю "type".
- */
+// ==== Типы сообщений чата ====
 interface ChatMessage {
 	id: string
 	user: string
@@ -20,34 +17,116 @@ interface ChatMessage {
 	base64Data?: string
 }
 
+/**
+ * Компонент для отображения файла.
+ * Если это изображение (fileType начинается с 'image/'),
+ * показываем превью <img>. Иначе – кликабельную ссылку на скачивание.
+ */
+const FileMessage: React.FC<{
+	fileName: string
+	fileType: string
+	base64Data: string
+}> = ({ fileName, fileType, base64Data }) => {
+	// Является ли файл изображением
+	const isImage = fileType.startsWith('image/')
+
+	// Функция скачивания файла
+	const handleDownload = () => {
+		const byteCharacters = atob(base64Data)
+		const byteNumbers = new Array(byteCharacters.length)
+		for (let i = 0; i < byteCharacters.length; i++) {
+			byteNumbers[i] = byteCharacters.charCodeAt(i)
+		}
+		const byteArray = new Uint8Array(byteNumbers)
+		const blob = new Blob([byteArray], { type: fileType })
+		const url = URL.createObjectURL(blob)
+
+		const link = document.createElement('a')
+		link.href = url
+		link.download = fileName
+		link.click()
+		URL.revokeObjectURL(url)
+	}
+
+	// Если это картинка, показываем мини-превью; иначе – просто название
+	return (
+		<div style={{ display: 'inline-block' }}>
+			{isImage ? (
+				<img
+					src={`data:${fileType};base64,${base64Data}`}
+					alt={fileName}
+					style={{ maxWidth: '150px', maxHeight: '150px', cursor: 'pointer' }}
+					onClick={handleDownload}
+					title='Нажмите, чтобы скачать'
+				/>
+			) : (
+				<span
+					style={{ textDecoration: 'underline', cursor: 'pointer' }}
+					onClick={handleDownload}
+					title='Скачать файл'
+				>
+					{fileName}
+				</span>
+			)}
+		</div>
+	)
+}
+
+/**
+ * Основной компонент ChatWidget, в котором логика подключения к SignalR,
+ * список сообщений, кнопка чата и окно с полем ввода.
+ */
 const ChatWidget: React.FC = () => {
-	// Состояние для самого соединения
+	// Состояние соединения с SignalR
 	const [connection, setConnection] = useState<HubConnection | null>(null)
-	// Список сообщений
+	// Список всех сообщений
 	const [messages, setMessages] = useState<ChatMessage[]>([])
 	// Текущее содержимое поля ввода
 	const [messageInput, setMessageInput] = useState('')
-	// Открыто ли окно чата (true) или свернуто (false)
+	// Открыт ли чат
 	const [isOpen, setIsOpen] = useState(false)
-	// Показывать ли окно для выбора эмодзи
+	// Показывать ли окно эмодзи
 	const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+	// Счётчик непрочитанных сообщений
+	const [unreadCount, setUnreadCount] = useState(0)
 
-	// Имя пользователя храним в ref, чтобы не вызывать лишних перерисовок
+	// Кто мы (имя пользователя берём из localStorage)
 	const usernameRef = useRef<string>('Anon')
 
-	// При маунте: читаем из localStorage "userName"
+	// -------------------------------------
+	// ЛОГИКА ПЕРЕТАСКИВАНИЯ:
+	// -------------------------------------
+
+	// Флаг, был ли чат "хоть раз" перетащен
+	const [hasBeenDragged, setHasBeenDragged] = useState(false)
+
+	// Позиция при перетаскивании (left и top)
+	const [position, setPosition] = useState({ x: 0, y: 0 })
+	// Смещение, когда пользователь начинает тянуть
+	const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+	// Идёт ли сейчас перетаскивание
+	const [isDragging, setIsDragging] = useState(false)
+
+	/**
+	 * Вспомогательная функция "clamp":
+	 * Позволяет "зажать" число в диапазон [min, max].
+	 */
+	const clamp = (value: number, min: number, max: number) =>
+		Math.max(min, Math.min(value, max))
+
+	// Сохраняем имя пользователя (если есть в localStorage)
 	useEffect(() => {
 		const storedName = localStorage.getItem('userName')
 		usernameRef.current = storedName || 'Anon'
 	}, [])
 
-	// Создаём и настраиваем соединение с SignalR при монтировании
+	// Единожды создаём подключение к SignalR
 	useEffect(() => {
+		if (connection) return // уже создано
+
 		const newConnection = new HubConnectionBuilder()
-			// URL к вашему хабу. Меняйте порт/адрес, если нужно
 			.withUrl('http://localhost:5100/chatHub', {
 				accessTokenFactory: () => {
-					// Если нужно прикрепить токен к WebSocket запросу
 					const token = localStorage.getItem('jwtToken')
 					return token ?? ''
 				},
@@ -57,87 +136,109 @@ const ChatWidget: React.FC = () => {
 			.build()
 
 		setConnection(newConnection)
-	}, [])
+	}, [connection])
 
-	// Запуск соединения и подписка на события ReceiveMessage и ReceiveFile
+	// Когда появилось connection — подключаемся и подписываемся
 	useEffect(() => {
-		if (connection) {
+		if (!connection) return
+
+		if (connection.state === HubConnectionState.Disconnected) {
 			connection
 				.start()
 				.then(() => {
 					console.log('SignalR Chat Connected.')
 
-					// Подписываемся на событие ReceiveMessage (пришло текстовое сообщение)
-					connection.on('ReceiveMessage', (user: string, message: string) => {
-						setMessages(prev => [
-							...prev,
-							{
-								id: Date.now().toString(),
-								user,
-								type: 'text',
-								text: message,
-							},
-						])
-					})
-
-					// Подписываемся на событие ReceiveFile (получен файл)
-					connection.on(
-						'ReceiveFile',
-						(
-							user: string,
-							fileName: string,
-							fileType: string,
-							base64Data: string
-						) => {
-							setMessages(prev => [
-								...prev,
-								{
-									id: Date.now().toString(),
-									user,
-									type: 'file',
-									fileName,
-									fileType,
-									base64Data,
-								},
-							])
-						}
-					)
+					// Подписки на события
+					connection.on('ReceiveMessage', handleReceiveMessage)
+					connection.on('ReceiveFile', handleReceiveFile)
 				})
 				.catch(err => console.error('SignalR Connection Error: ', err))
 		}
 
-		// При размонтировании/обновлении уберём обработчики
+		// Убираем подписки при размонтировании
 		return () => {
-			connection?.off('ReceiveMessage')
-			connection?.off('ReceiveFile')
+			if (connection) {
+				connection.off('ReceiveMessage', handleReceiveMessage)
+				connection.off('ReceiveFile', handleReceiveFile)
+			}
 		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [connection])
 
-	// Отправка текстового сообщения
-	const sendMessage = async () => {
-		if (!connection) return
-		if (!messageInput.trim()) return
+	// Обработчик входящих текстовых сообщений
+	const handleReceiveMessage = (user: string, message: string) => {
+		// Если пришло сообщение от другого пользователя
+		if (user !== usernameRef.current) {
+			setMessages(prev => [
+				...prev,
+				{
+					id: Date.now().toString(),
+					user,
+					type: 'text',
+					text: message,
+				},
+			])
+			// Если чат закрыт, повышаем счётчик непрочитанных
+			if (!isOpen) {
+				setUnreadCount(count => count + 1)
+			}
+		}
+	}
 
+	// Обработчик входящих файлов
+	const handleReceiveFile = (
+		user: string,
+		fileName: string,
+		fileType: string,
+		base64Data: string
+	) => {
+		// Аналогично, если файл прислал другой пользователь
+		if (user !== usernameRef.current) {
+			setMessages(prev => [
+				...prev,
+				{
+					id: Date.now().toString(),
+					user,
+					type: 'file',
+					fileName,
+					fileType,
+					base64Data,
+				},
+			])
+			if (!isOpen) {
+				setUnreadCount(count => count + 1)
+			}
+		}
+	}
+
+	// Функция отправки текстового сообщения
+	const sendMessage = async () => {
+		if (!connection || !messageInput.trim()) return
 		try {
-			// вызываем метод SendMessage на серверном хабе
 			await connection.invoke('SendMessage', usernameRef.current, messageInput)
+			// Добавляем себе локально
+			setMessages(prev => [
+				...prev,
+				{
+					id: Date.now().toString(),
+					user: usernameRef.current,
+					type: 'text',
+					text: messageInput,
+				},
+			])
 			setMessageInput('')
 		} catch (err) {
 			console.error('SendMessage error:', err)
 		}
 	}
 
-	// Отправка файла (в base64)
+	// Функция отправки файла
 	const sendFile = async (file: File) => {
-		if (!connection) return
-		if (!file) return
-
+		if (!connection || !file) return
 		try {
 			const reader = new FileReader()
 			reader.onload = async () => {
-				// reader.result будет содержать base64-строку вида "data:image/png;base64,iVBORw0K..."
 				if (typeof reader.result === 'string') {
-					// Обрежем префикс "data:xxx;base64," – можно сохранить MIME отдельно
 					const base64str = reader.result.split(',')[1] || ''
 					const mimeType = file.type
 
@@ -148,6 +249,19 @@ const ChatWidget: React.FC = () => {
 						mimeType,
 						base64str
 					)
+
+					// Добавляем локально, чтобы сразу увидеть отправленный файл
+					setMessages(prev => [
+						...prev,
+						{
+							id: Date.now().toString(),
+							user: usernameRef.current,
+							type: 'file',
+							fileName: file.name,
+							fileType: mimeType,
+							base64Data: base64str,
+						},
+					])
 				}
 			}
 			reader.readAsDataURL(file)
@@ -156,7 +270,15 @@ const ChatWidget: React.FC = () => {
 		}
 	}
 
-	// Обработка Enter в поле input
+	// Открыть/закрыть чат
+	const toggleChat = () => {
+		if (!isOpen) {
+			setUnreadCount(0)
+		}
+		setIsOpen(!isOpen)
+	}
+
+	// Отправка при нажатии Enter
 	const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
 		if (e.key === 'Enter') {
 			e.preventDefault()
@@ -164,47 +286,124 @@ const ChatWidget: React.FC = () => {
 		}
 	}
 
-	// Выбор файла через <input type="file">
+	// Событие выбора файла
 	const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0]
 		if (file) {
 			sendFile(file)
-			// Сброс input, чтобы можно было повторно выбрать тот же файл
 			e.target.value = ''
 		}
 	}
 
-	// Добавляем эмодзи в текущее поле ввода
+	// Добавление эмодзи
 	const addEmoji = (emojiSymbol: string) => {
 		setMessageInput(prev => prev + emojiSymbol)
 	}
 
+	// -------------------------------------
+	// Обработчики для перетаскивания:
+	// -------------------------------------
+	const onDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
+		setIsDragging(true)
+		setHasBeenDragged(true) // Помечаем, что окно уже таскали
+		// Запоминаем смещение между левым/верхним краем окна и курсором
+		setDragOffset({
+			x: e.clientX - position.x,
+			y: e.clientY - position.y,
+		})
+	}
+
+	const onDrag = (e: React.MouseEvent<HTMLDivElement>) => {
+		if (!isDragging) return
+
+		// Размеры окна (примерно) — если хотим ограничить выход за экран
+		const chatWidth = 360
+		const chatHeight = 400 // здесь можно подкорректировать
+
+		// Вычисляем новые "сырые" координаты
+		let newX = e.clientX - dragOffset.x
+		let newY = e.clientY - dragOffset.y
+
+		// Ограничиваем, чтобы не вылезало за границы экрана
+		newX = clamp(newX, 0, window.innerWidth - chatWidth)
+		newY = clamp(newY, 0, window.innerHeight - chatHeight)
+
+		setPosition({ x: newX, y: newY })
+	}
+
+	const onDragEnd = () => {
+		setIsDragging(false)
+	}
+
+	// -------------------------------------
+	// Формируем стили для окна чата
+	// -------------------------------------
+
+	/**
+	 * Если окно НЕ было перетаскано ни разу, мы просто
+	 * фиксируем его справа внизу (как было изначально).
+	 * Если было перетащено — переходим на координаты top/left.
+	 */
+	const chatWindowStyle: React.CSSProperties = {
+		...styles.chatWindow,
+		position: 'fixed',
+		// Если окно ещё не таскали — крепим его снизу справа
+		...(hasBeenDragged
+			? {
+					// Если таскали — позиционируем по x,y
+					top: `${position.y}px`,
+					left: `${position.x}px`,
+			  }
+			: {
+					// Изначально - "прилип" к нижнему правому углу
+					bottom: '70px',
+					right: '20px',
+			  }),
+		// Указатель мыши при перетаскивании
+		cursor: isDragging ? 'grabbing' : 'default',
+	}
+
 	return (
 		<>
-			{/* Кнопка (floating) для открытия/закрытия чата */}
+			{/* Кнопка чата (правый нижний угол) */}
 			<div style={styles.chatButtonContainer}>
 				<button
-					style={styles.chatButton}
-					onClick={() => setIsOpen(!isOpen)}
+					style={{
+						...styles.chatButton,
+						...(unreadCount > 0 ? styles.chatButtonUnread : {}),
+					}}
+					onClick={toggleChat}
 					title='Открыть/закрыть чат'
 				>
-					💬
+					{unreadCount > 0 ? `💬 (${unreadCount})` : '💬'}
 				</button>
 			</div>
 
-			{/* Если чат открыт, показываем окно */}
+			{/* Если чат открыт, показываем блок чата */}
 			{isOpen && (
-				<div style={styles.chatWindow} className='chat-window-animation'>
-					<div style={styles.header}>
-						<span>Современный чат</span>
-						<button style={styles.closeBtn} onClick={() => setIsOpen(false)}>
+				<div
+					style={chatWindowStyle}
+					className='chat-window-animation'
+					// Назначаем обработчики перетаскивания на всю область окна
+					onMouseMove={onDrag}
+					onMouseUp={onDragEnd}
+				>
+					{/* Шапка чата (тянем за неё, чтобы перетащить) */}
+					<div
+						style={styles.header}
+						onMouseDown={onDragStart}
+						onMouseUp={onDragEnd}
+					>
+						<span>Тёмный чат</span>
+						<button style={styles.closeBtn} onClick={toggleChat}>
 							✕
 						</button>
 					</div>
 
+					{/* Список сообщений */}
 					<div style={styles.messagesContainer}>
 						{messages.length === 0 && (
-							<div style={{ textAlign: 'center', color: '#666' }}>
+							<div style={{ textAlign: 'center', color: '#aaa' }}>
 								Нет сообщений
 							</div>
 						)}
@@ -213,7 +412,7 @@ const ChatWidget: React.FC = () => {
 								key={msg.id}
 								style={{
 									...styles.messageItem,
-									animationDelay: `${0.02 * idx}s`, // небольшая задержка для "каскадности"
+									animationDelay: `${0.02 * idx}s`,
 								}}
 								className='fade-in-message'
 							>
@@ -230,8 +429,8 @@ const ChatWidget: React.FC = () => {
 						))}
 					</div>
 
+					{/* Поле ввода, кнопки для файлов, эмодзи и отправки */}
 					<div style={styles.inputContainer}>
-						{/* Кнопка выбора файла */}
 						<label style={styles.fileLabel}>
 							📎
 							<input
@@ -240,7 +439,7 @@ const ChatWidget: React.FC = () => {
 								onChange={handleFileChange}
 							/>
 						</label>
-						{/* Поле ввода текста */}
+
 						<input
 							type='text'
 							style={styles.inputField}
@@ -249,7 +448,8 @@ const ChatWidget: React.FC = () => {
 							onKeyPress={handleKeyPress}
 							placeholder='Введите сообщение...'
 						/>
-						{/* Кнопка "Emoji" */}
+
+						{/* Кнопка эмодзи */}
 						<button
 							style={styles.emojiBtn}
 							onClick={() => setShowEmojiPicker(!showEmojiPicker)}
@@ -257,7 +457,8 @@ const ChatWidget: React.FC = () => {
 						>
 							😃
 						</button>
-						{/* Окно с эмодзи (если showEmojiPicker === true) */}
+
+						{/* Окно с эмодзи */}
 						{showEmojiPicker && (
 							<div style={styles.emojiPicker} className='fade-in-emoji'>
 								{EMOJIS.map((emoji, i) => (
@@ -285,7 +486,7 @@ const ChatWidget: React.FC = () => {
 
 			{/* Дополнительные стили/анимации */}
 			<style>{`
-        /* Анимация появления окна чата (при открытии) */
+        /* Анимация окна чата при открытии */
         .chat-window-animation {
           animation: slideUp 0.4s ease forwards;
         }
@@ -294,7 +495,7 @@ const ChatWidget: React.FC = () => {
           to { transform: translateY(0); opacity: 1; }
         }
 
-        /* Анимация для новых сообщений */
+        /* Анимация появления сообщения */
         .fade-in-message {
           animation: fadeIn 0.3s forwards;
         }
@@ -303,13 +504,20 @@ const ChatWidget: React.FC = () => {
           to {opacity: 1; transform: translateY(0);}
         }
 
-        /* Анимация для попапа эмодзи */
-        .fade-in-emoji {
-          animation: fadeInScale 0.2s forwards;
-        }
-        @keyframes fadeInScale {
-          from {opacity: 0; transform: scale(0.9);}
-          to {opacity: 1; transform: scale(1);}
+        /* Анимация пульсации кнопки при новых сообщениях */
+        @keyframes pulse {
+          0% {
+            transform: scale(1);
+            box-shadow: 0 0 0 rgba(255, 0, 0, 0.7);
+          }
+          50% {
+            transform: scale(1.08);
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.8);
+          }
+          100% {
+            transform: scale(1);
+            box-shadow: 0 0 0 rgba(255, 0, 0, 0.7);
+          }
         }
       `}</style>
 		</>
@@ -317,59 +525,142 @@ const ChatWidget: React.FC = () => {
 }
 
 /**
- * Небольшой вложенный компонент для отображения файла.
- * Если это изображение, показываем превью <img>.
- * Иначе даём ссылку для скачивания.
+ * Набор стилей для чата (тёмная тема + начальная фиксация внизу справа)
  */
-const FileMessage: React.FC<{
-	fileName: string
-	fileType: string
-	base64Data: string
-}> = ({ fileName, fileType, base64Data }) => {
-	// Определяем, является ли файл изображением
-	const isImage = fileType.startsWith('image/')
-
-	const handleDownload = () => {
-		const byteCharacters = atob(base64Data)
-		const byteNumbers = new Array(byteCharacters.length)
-		for (let i = 0; i < byteCharacters.length; i++) {
-			byteNumbers[i] = byteCharacters.charCodeAt(i)
-		}
-		const byteArray = new Uint8Array(byteNumbers)
-		const blob = new Blob([byteArray], { type: fileType })
-		const url = URL.createObjectURL(blob)
-
-		const link = document.createElement('a')
-		link.href = url
-		link.download = fileName
-		link.click()
-		URL.revokeObjectURL(url)
-	}
-
-	return (
-		<div style={{ display: 'inline-block' }}>
-			{isImage ? (
-				<img
-					src={`data:${fileType};base64,${base64Data}`}
-					alt={fileName}
-					style={{ maxWidth: '150px', maxHeight: '150px', cursor: 'pointer' }}
-					onClick={handleDownload}
-					title='Нажмите, чтобы скачать'
-				/>
-			) : (
-				<span
-					style={{ textDecoration: 'underline', cursor: 'pointer' }}
-					onClick={handleDownload}
-					title='Скачать файл'
-				>
-					{fileName}
-				</span>
-			)}
-		</div>
-	)
+const styles: { [key: string]: React.CSSProperties } = {
+	chatButtonContainer: {
+		position: 'fixed',
+		bottom: '15px',
+		right: '15px',
+		zIndex: 9999,
+	},
+	chatButton: {
+		backgroundColor: '#2196f3',
+		color: '#fff',
+		borderRadius: '50%',
+		width: '50px',
+		height: '50px',
+		fontSize: '18px',
+		border: 'none',
+		cursor: 'pointer',
+		boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+		position: 'relative',
+	},
+	chatButtonUnread: {
+		animation: 'pulse 1.5s infinite',
+	},
+	chatWindow: {
+		width: '360px',
+		display: 'flex',
+		flexDirection: 'column',
+		boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+		backgroundColor: '#2b2b2b',
+		zIndex: 9999,
+		borderRadius: '6px',
+	},
+	header: {
+		backgroundColor: '#555',
+		color: '#fff',
+		padding: '8px',
+		fontWeight: 'bold',
+		display: 'flex',
+		justifyContent: 'space-between',
+		alignItems: 'center',
+		borderTopLeftRadius: '6px',
+		borderTopRightRadius: '6px',
+		cursor: 'grab', // указываем, что окно можно "тянуть"
+	},
+	closeBtn: {
+		background: 'transparent',
+		border: 'none',
+		color: '#fff',
+		fontSize: '16px',
+		cursor: 'pointer',
+	},
+	messagesContainer: {
+		flex: 1,
+		padding: '8px',
+		overflowY: 'auto',
+		maxHeight: '300px',
+		backgroundColor: '#2b2b2b',
+	},
+	messageItem: {
+		marginBottom: '10px',
+		fontSize: '0.9rem',
+		padding: '6px 8px',
+		borderRadius: '4px',
+		background: '#3b3b3b',
+		color: '#fff',
+	},
+	inputContainer: {
+		display: 'flex',
+		alignItems: 'center',
+		padding: '4px 8px',
+		gap: '4px',
+		borderTop: '1px solid #444',
+		backgroundColor: '#333',
+		borderBottomLeftRadius: '6px',
+		borderBottomRightRadius: '6px',
+	},
+	fileLabel: {
+		cursor: 'pointer',
+		fontSize: '1.2rem',
+		color: '#fff',
+	},
+	inputField: {
+		flex: 1,
+		border: '1px solid #444',
+		padding: '8px',
+		outline: 'none',
+		fontSize: '0.9rem',
+		backgroundColor: '#1f1f1f',
+		color: '#fff',
+		borderRadius: '4px',
+	},
+	emojiBtn: {
+		backgroundColor: 'transparent',
+		border: 'none',
+		fontSize: '1.3rem',
+		cursor: 'pointer',
+		outline: 'none',
+		color: '#fff',
+		padding: '0 8px',
+	},
+	emojiPicker: {
+		position: 'absolute',
+		bottom: '45px',
+		// Cдвинуть левее, чтобы не заслоняло кнопку Отправить:
+		right: '90px',
+		backgroundColor: '#2b2b2b',
+		border: '1px solid #444',
+		borderRadius: '8px',
+		padding: '8px',
+		width: '180px',
+		display: 'flex',
+		flexWrap: 'wrap',
+		boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+		zIndex: 99999,
+	},
+	emojiItem: {
+		fontSize: '1.2rem',
+		margin: '4px',
+		cursor: 'pointer',
+	},
+	sendBtn: {
+		backgroundColor: '#4caf50',
+		border: 'none',
+		color: '#fff',
+		padding: '8px 12px',
+		cursor: 'pointer',
+		borderRadius: '4px',
+		fontSize: '0.9rem',
+		outline: 'none',
+	},
 }
 
-// Набор эмодзи (упрощённый)
+/**
+ * Набор эмодзи
+ */
 const EMOJIS = [
 	'😀',
 	'😃',
@@ -402,120 +693,5 @@ const EMOJIS = [
 	'🚀',
 ]
 
-// Инлайн-стили
-const styles: { [key: string]: React.CSSProperties } = {
-	chatButtonContainer: {
-		position: 'fixed',
-		bottom: '20px',
-		right: '20px',
-		zIndex: 9999,
-	},
-	chatButton: {
-		backgroundColor: '#007bff',
-		color: '#fff',
-		borderRadius: '50%',
-		width: '50px',
-		height: '50px',
-		fontSize: '20px',
-		border: 'none',
-		cursor: 'pointer',
-		boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-	},
-	chatWindow: {
-		position: 'fixed',
-		bottom: '80px',
-		right: '20px',
-		width: '320px',
-		border: '1px solid #ccc',
-		display: 'flex',
-		flexDirection: 'column',
-		boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)',
-		backgroundColor: '#fff',
-		zIndex: 9999,
-		borderRadius: '6px',
-	},
-	header: {
-		backgroundColor: '#007bff',
-		color: '#fff',
-		padding: '8px',
-		fontWeight: 'bold',
-		display: 'flex',
-		justifyContent: 'space-between',
-		alignItems: 'center',
-		borderTopLeftRadius: '6px',
-		borderTopRightRadius: '6px',
-	},
-	closeBtn: {
-		background: 'transparent',
-		border: 'none',
-		color: '#fff',
-		fontSize: '16px',
-		cursor: 'pointer',
-	},
-	messagesContainer: {
-		flex: 1,
-		padding: '8px',
-		overflowY: 'auto',
-	},
-	messageItem: {
-		marginBottom: '10px',
-		fontSize: '0.9rem',
-		padding: '6px 8px',
-		borderRadius: '4px',
-		background: '#f3f3f3',
-		animationFillMode: 'both',
-	},
-	inputContainer: {
-		display: 'flex',
-		borderTop: '1px solid #ccc',
-		alignItems: 'center',
-		padding: '4px 8px',
-		gap: '4px',
-	},
-	fileLabel: {
-		cursor: 'pointer',
-		padding: '4px',
-		fontSize: '1.2rem',
-	},
-	inputField: {
-		flex: 1,
-		border: 'none',
-		padding: '8px',
-		outline: 'none',
-	},
-	emojiBtn: {
-		backgroundColor: 'transparent',
-		border: 'none',
-		fontSize: '1.3rem',
-		cursor: 'pointer',
-	},
-	emojiPicker: {
-		position: 'absolute',
-		bottom: '50px',
-		right: '60px',
-		backgroundColor: '#fff',
-		border: '1px solid #ccc',
-		borderRadius: '8px',
-		padding: '8px',
-		width: '180px',
-		display: 'flex',
-		flexWrap: 'wrap',
-		boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-		zIndex: 99999,
-	},
-	emojiItem: {
-		fontSize: '1.2rem',
-		margin: '4px',
-		cursor: 'pointer',
-	},
-	sendBtn: {
-		backgroundColor: '#28a745',
-		border: 'none',
-		color: '#fff',
-		padding: '8px 12px',
-		cursor: 'pointer',
-		borderRadius: '4px',
-	},
-}
-
+// Экспортируем компонент
 export default ChatWidget

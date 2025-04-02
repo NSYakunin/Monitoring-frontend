@@ -4,6 +4,9 @@ import { Link, useLocation } from 'react-router-dom'
 import './Layout.css'
 import 'bootstrap-icons/font/bootstrap-icons.css'
 
+// Импортируем наш чат
+import ChatWidget from '../ChatWidget'
+
 interface LayoutProps {
 	children: React.ReactNode
 }
@@ -28,7 +31,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 					</Navbar.Brand>
 
 					{/* Блок справа */}
-					<Nav className='ms-auto'>
+					<Nav className='ms-auto' style={{ position: 'relative' }}>
 						{isSettingsPage ? (
 							<Nav.Link as={Link} to='/'>
 								На главную
@@ -38,6 +41,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 								Настройки
 							</Nav.Link>
 						)}
+
+						{/* Сам виджет чата (кнопка и всплывающее окно) */}
+						<div style={{ position: 'relative', marginLeft: '15px' }}>
+							<ChatWidget />
+						</div>
 					</Nav>
 				</Container>
 			</Navbar>
