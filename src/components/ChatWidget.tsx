@@ -18,9 +18,7 @@ interface ChatMessage {
 }
 
 /**
- * Компонент для отображения файла.
- * Если это изображение (fileType начинается с 'image/'),
- * показываем превью <img>. Иначе – кликабельную ссылку на скачивание.
+ * Компонент для отображения файла (если картинка – превью, иначе – ссылка на скачивание).
  */
 const FileMessage: React.FC<{
 	fileName: string
@@ -73,6 +71,41 @@ const FileMessage: React.FC<{
 }
 
 /**
+ * Набор эмодзи
+ */
+const EMOJIS = [
+	'😀',
+	'😃',
+	'😄',
+	'😁',
+	'😆',
+	'😅',
+	'🤣',
+	'😂',
+	'🙂',
+	'😉',
+	'😊',
+	'😇',
+	'🥰',
+	'😍',
+	'🤩',
+	'😘',
+	'😜',
+	'🤪',
+	'😎',
+	'🤓',
+	'😱',
+	'😴',
+	'👍',
+	'👎',
+	'❤️',
+	'🔥',
+	'🎉',
+	'💯',
+	'🚀',
+]
+
+/**
  * Основной компонент ChatWidget, в котором логика подключения к SignalR,
  * список сообщений, кнопка чата и окно с полем ввода.
  */
@@ -92,37 +125,80 @@ const ChatWidget: React.FC = () => {
 
 	// Кто мы (имя пользователя берём из localStorage)
 	const usernameRef = useRef<string>('Anon')
+	useEffect(() => {
+		const storedName = localStorage.getItem('userName')
+		usernameRef.current = storedName || 'Anon'
+	}, [])
 
-	// -------------------------------------
-	// ЛОГИКА ПЕРЕТАСКИВАНИЯ:
-	// -------------------------------------
+	// --------------------------------------------------------------------------------
+	// ЛОГИКА ДЛЯ ПЕРЕТАСКИВАНИЯ:
+	// --------------------------------------------------------------------------------
 
 	// Флаг, был ли чат "хоть раз" перетащен
 	const [hasBeenDragged, setHasBeenDragged] = useState(false)
 
-	// Позиция при перетаскивании (left и top)
-	const [position, setPosition] = useState({ x: 0, y: 0 })
+	/**
+	 * Начальные координаты (x, y) сразу выставляем так,
+	 * чтобы окно (шириной 360, высотой ~400) "сидело" внизу справа.
+	 * Тогда при первом же перемещении не будет эффекта "прыжка".
+	 */
+	const [position, setPosition] = useState(() => {
+		const chatWidth = 360
+		const chatHeight = 400 // примерная общая высота
+		return {
+			x: window.innerWidth - chatWidth - 20,
+			y: window.innerHeight - chatHeight - 70,
+		}
+	})
+
 	// Смещение, когда пользователь начинает тянуть
 	const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
 	// Идёт ли сейчас перетаскивание
 	const [isDragging, setIsDragging] = useState(false)
 
 	/**
-	 * Вспомогательная функция "clamp":
-	 * Позволяет "зажать" число в диапазон [min, max].
+	 * "Зажим" (clamp) значения в диапазон [min, max].
 	 */
 	const clamp = (value: number, min: number, max: number) =>
 		Math.max(min, Math.min(value, max))
 
-	// Сохраняем имя пользователя (если есть в localStorage)
-	useEffect(() => {
-		const storedName = localStorage.getItem('userName')
-		usernameRef.current = storedName || 'Anon'
-	}, [])
+	const onDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
+		e.preventDefault() // чтобы не выделялся текст и не было "глюков"
+		setHasBeenDragged(true)
+		setIsDragging(true)
+		setDragOffset({
+			x: e.clientX - position.x,
+			y: e.clientY - position.y,
+		})
+	}
 
-	// Единожды создаём подключение к SignalR
+	const onDrag = (e: React.MouseEvent<HTMLDivElement>) => {
+		if (!isDragging) return
+
+		// Учитываем габариты чата для "зажима" в пределах экрана
+		const chatWidth = 360
+		const chatHeight = 400 // примерная высота (сообщения + хедер + поле ввода)
+
+		let newX = e.clientX - dragOffset.x
+		let newY = e.clientY - dragOffset.y
+
+		newX = clamp(newX, 0, window.innerWidth - chatWidth)
+		newY = clamp(newY, 0, window.innerHeight - chatHeight)
+
+		setPosition({ x: newX, y: newY })
+	}
+
+	const onDragEnd = () => {
+		setIsDragging(false)
+	}
+
+	// --------------------------------------------------------------------------------
+	// Конец блока перетаскивания
+	// --------------------------------------------------------------------------------
+
+	// Создаём подключение к SignalR (единожды)
 	useEffect(() => {
-		if (connection) return // уже создано
+		if (connection) return
 
 		const newConnection = new HubConnectionBuilder()
 			.withUrl('http://localhost:5100/chatHub', {
@@ -138,7 +214,7 @@ const ChatWidget: React.FC = () => {
 		setConnection(newConnection)
 	}, [connection])
 
-	// Когда появилось connection — подключаемся и подписываемся
+	// Запуск подключения и подписка на события
 	useEffect(() => {
 		if (!connection) return
 
@@ -147,15 +223,13 @@ const ChatWidget: React.FC = () => {
 				.start()
 				.then(() => {
 					console.log('SignalR Chat Connected.')
-
-					// Подписки на события
+					// Подписываемся на события
 					connection.on('ReceiveMessage', handleReceiveMessage)
 					connection.on('ReceiveFile', handleReceiveFile)
 				})
 				.catch(err => console.error('SignalR Connection Error: ', err))
 		}
 
-		// Убираем подписки при размонтировании
 		return () => {
 			if (connection) {
 				connection.off('ReceiveMessage', handleReceiveMessage)
@@ -165,27 +239,21 @@ const ChatWidget: React.FC = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [connection])
 
-	// Обработчик входящих текстовых сообщений
+	// Обработчик входящего текстового сообщения
 	const handleReceiveMessage = (user: string, message: string) => {
 		// Если пришло сообщение от другого пользователя
 		if (user !== usernameRef.current) {
 			setMessages(prev => [
 				...prev,
-				{
-					id: Date.now().toString(),
-					user,
-					type: 'text',
-					text: message,
-				},
+				{ id: Date.now().toString(), user, type: 'text', text: message },
 			])
-			// Если чат закрыт, повышаем счётчик непрочитанных
 			if (!isOpen) {
 				setUnreadCount(count => count + 1)
 			}
 		}
 	}
 
-	// Обработчик входящих файлов
+	// Обработчик входящего файла
 	const handleReceiveFile = (
 		user: string,
 		fileName: string,
@@ -211,7 +279,7 @@ const ChatWidget: React.FC = () => {
 		}
 	}
 
-	// Функция отправки текстового сообщения
+	// Отправка текстового сообщения
 	const sendMessage = async () => {
 		if (!connection || !messageInput.trim()) return
 		try {
@@ -232,7 +300,7 @@ const ChatWidget: React.FC = () => {
 		}
 	}
 
-	// Функция отправки файла
+	// Отправка файла
 	const sendFile = async (file: File) => {
 		if (!connection || !file) return
 		try {
@@ -270,7 +338,7 @@ const ChatWidget: React.FC = () => {
 		}
 	}
 
-	// Открыть/закрыть чат
+	// Закрыть/открыть чат
 	const toggleChat = () => {
 		if (!isOpen) {
 			setUnreadCount(0)
@@ -278,7 +346,7 @@ const ChatWidget: React.FC = () => {
 		setIsOpen(!isOpen)
 	}
 
-	// Отправка при нажатии Enter
+	// Отправка по Enter
 	const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
 		if (e.key === 'Enter') {
 			e.preventDefault()
@@ -286,7 +354,7 @@ const ChatWidget: React.FC = () => {
 		}
 	}
 
-	// Событие выбора файла
+	// Отправка файла (через input[type=file])
 	const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0]
 		if (file) {
@@ -295,71 +363,35 @@ const ChatWidget: React.FC = () => {
 		}
 	}
 
-	// Добавление эмодзи
+	// Добавление эмодзи в сообщение
 	const addEmoji = (emojiSymbol: string) => {
 		setMessageInput(prev => prev + emojiSymbol)
 	}
 
-	// -------------------------------------
-	// Обработчики для перетаскивания:
-	// -------------------------------------
-	const onDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
-		setIsDragging(true)
-		setHasBeenDragged(true) // Помечаем, что окно уже таскали
-		// Запоминаем смещение между левым/верхним краем окна и курсором
-		setDragOffset({
-			x: e.clientX - position.x,
-			y: e.clientY - position.y,
-		})
-	}
+	// --------------------------------------------------------------------------------
+	// Автоматическая прокрутка списка сообщений вниз при появлении новых сообщений:
+	// --------------------------------------------------------------------------------
 
-	const onDrag = (e: React.MouseEvent<HTMLDivElement>) => {
-		if (!isDragging) return
+	const messagesEndRef = useRef<HTMLDivElement | null>(null)
 
-		// Размеры окна (примерно) — если хотим ограничить выход за экран
-		const chatWidth = 360
-		const chatHeight = 400 // здесь можно подкорректировать
+	useEffect(() => {
+		messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+	}, [messages])
 
-		// Вычисляем новые "сырые" координаты
-		let newX = e.clientX - dragOffset.x
-		let newY = e.clientY - dragOffset.y
-
-		// Ограничиваем, чтобы не вылезало за границы экрана
-		newX = clamp(newX, 0, window.innerWidth - chatWidth)
-		newY = clamp(newY, 0, window.innerHeight - chatHeight)
-
-		setPosition({ x: newX, y: newY })
-	}
-
-	const onDragEnd = () => {
-		setIsDragging(false)
-	}
-
-	// -------------------------------------
-	// Формируем стили для окна чата
-	// -------------------------------------
-
-	/**
-	 * Если окно НЕ было перетаскано ни разу, мы просто
-	 * фиксируем его справа внизу (как было изначально).
-	 * Если было перетащено — переходим на координаты top/left.
-	 */
+	// --------------------------------------------------------------------------------
+	// Формируем стили для окна чата:
+	// --------------------------------------------------------------------------------
 	const chatWindowStyle: React.CSSProperties = {
 		...styles.chatWindow,
 		position: 'fixed',
-		// Если окно ещё не таскали — крепим его снизу справа
+		/**
+		 * Если окно НЕ было перетащено ни разу, крепим его снизу справа (как и раньше).
+		 * Если окно было перетащено, используем координаты top/left из состояния.
+		 */
 		...(hasBeenDragged
-			? {
-					// Если таскали — позиционируем по x,y
-					top: `${position.y}px`,
-					left: `${position.x}px`,
-			  }
-			: {
-					// Изначально - "прилип" к нижнему правому углу
-					bottom: '70px',
-					right: '20px',
-			  }),
-		// Указатель мыши при перетаскивании
+			? { top: `${position.y}px`, left: `${position.x}px` }
+			: { bottom: '70px', right: '20px' }),
+		// Указатель мыши во время перетаскивания:
 		cursor: isDragging ? 'grabbing' : 'default',
 	}
 
@@ -379,7 +411,7 @@ const ChatWidget: React.FC = () => {
 				</button>
 			</div>
 
-			{/* Если чат открыт, показываем блок чата */}
+			{/* Окно чата, если оно открыто */}
 			{isOpen && (
 				<div
 					style={chatWindowStyle}
@@ -388,13 +420,13 @@ const ChatWidget: React.FC = () => {
 					onMouseMove={onDrag}
 					onMouseUp={onDragEnd}
 				>
-					{/* Шапка чата (тянем за неё, чтобы перетащить) */}
+					{/* Шапка чата (за неё "тянем" окно) */}
 					<div
 						style={styles.header}
 						onMouseDown={onDragStart}
 						onMouseUp={onDragEnd}
 					>
-						<span>Тёмный чат</span>
+						<span>Чатик</span>
 						<button style={styles.closeBtn} onClick={toggleChat}>
 							✕
 						</button>
@@ -427,6 +459,8 @@ const ChatWidget: React.FC = () => {
 								)}
 							</div>
 						))}
+						{/* "Якорь" для автоскролла вниз */}
+						<div ref={messagesEndRef} />
 					</div>
 
 					{/* Поле ввода, кнопки для файлов, эмодзи и отправки */}
@@ -484,7 +518,7 @@ const ChatWidget: React.FC = () => {
 				</div>
 			)}
 
-			{/* Дополнительные стили/анимации */}
+			{/* Внутренние стили/анимации */}
 			<style>{`
         /* Анимация окна чата при открытии */
         .chat-window-animation {
@@ -525,7 +559,7 @@ const ChatWidget: React.FC = () => {
 }
 
 /**
- * Набор стилей для чата (тёмная тема + начальная фиксация внизу справа)
+ * Набор стилей для чата (тёмная тема + фиксация внизу справа по умолчанию).
  */
 const styles: { [key: string]: React.CSSProperties } = {
 	chatButtonContainer: {
@@ -629,8 +663,7 @@ const styles: { [key: string]: React.CSSProperties } = {
 	emojiPicker: {
 		position: 'absolute',
 		bottom: '45px',
-		// Cдвинуть левее, чтобы не заслоняло кнопку Отправить:
-		right: '90px',
+		right: '90px', // чтобы не заслонять кнопку "Отправить"
 		backgroundColor: '#2b2b2b',
 		border: '1px solid #444',
 		borderRadius: '8px',
@@ -658,40 +691,4 @@ const styles: { [key: string]: React.CSSProperties } = {
 	},
 }
 
-/**
- * Набор эмодзи
- */
-const EMOJIS = [
-	'😀',
-	'😃',
-	'😄',
-	'😁',
-	'😆',
-	'😅',
-	'🤣',
-	'😂',
-	'🙂',
-	'😉',
-	'😊',
-	'😇',
-	'🥰',
-	'😍',
-	'🤩',
-	'😘',
-	'😜',
-	'🤪',
-	'😎',
-	'🤓',
-	'😱',
-	'😴',
-	'👍',
-	'👎',
-	'❤️',
-	'🔥',
-	'🎉',
-	'💯',
-	'🚀',
-]
-
-// Экспортируем компонент
 export default ChatWidget
