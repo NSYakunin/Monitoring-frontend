@@ -6,202 +6,122 @@ import {
 	HubConnectionState,
 } from '@microsoft/signalr'
 
-// ==== Типы сообщений чата ====
-interface ChatMessage {
-	id: string
-	user: string
-	type: 'text' | 'file'
-	text?: string
-	fileName?: string
-	fileType?: string
-	base64Data?: string
+/**
+ * DTO-сообщение (как в бэкенде).
+ * Поля совпадают с классом ChatMessageDto или ChatMessage.
+ */
+interface ChatMessageDto {
+	id: number
+	fromUserId: number
+	toUserId?: number | null
+	groupId?: number | null
+	messageText: string
+	createdAt: string // или Date, если бы парсили
 }
 
 /**
- * Компонент для отображения файла (если картинка – превью, иначе – ссылка на скачивание).
+ * Простейшие интерфейсы "друга", "группы" и "заблокированного пользователя".
+ * В реальном проекте можно сложнее, но для наглядности — так.
  */
-const FileMessage: React.FC<{
-	fileName: string
-	fileType: string
-	base64Data: string
-}> = ({ fileName, fileType, base64Data }) => {
-	// Является ли файл изображением
-	const isImage = fileType.startsWith('image/')
+interface Friend {
+	userId: number
+	userName: string
+}
 
-	// Функция скачивания файла
-	const handleDownload = () => {
-		const byteCharacters = atob(base64Data)
-		const byteNumbers = new Array(byteCharacters.length)
-		for (let i = 0; i < byteCharacters.length; i++) {
-			byteNumbers[i] = byteCharacters.charCodeAt(i)
-		}
-		const byteArray = new Uint8Array(byteNumbers)
-		const blob = new Blob([byteArray], { type: fileType })
-		const url = URL.createObjectURL(blob)
+interface BlockedUser {
+	userId: number
+	userName: string
+}
 
-		const link = document.createElement('a')
-		link.href = url
-		link.download = fileName
-		link.click()
-		URL.revokeObjectURL(url)
-	}
-
-	// Если это картинка, показываем мини-превью; иначе – просто название
-	return (
-		<div style={{ display: 'inline-block' }}>
-			{isImage ? (
-				<img
-					src={`data:${fileType};base64,${base64Data}`}
-					alt={fileName}
-					style={{ maxWidth: '150px', maxHeight: '150px', cursor: 'pointer' }}
-					onClick={handleDownload}
-					title='Нажмите, чтобы скачать'
-				/>
-			) : (
-				<span
-					style={{ textDecoration: 'underline', cursor: 'pointer' }}
-					onClick={handleDownload}
-					title='Скачать файл'
-				>
-					{fileName}
-				</span>
-			)}
-		</div>
-	)
+interface GroupInfo {
+	groupId: number
+	groupName: string
 }
 
 /**
- * Набор эмодзи
- */
-const EMOJIS = [
-	'😀',
-	'😃',
-	'😄',
-	'😁',
-	'😆',
-	'😅',
-	'🤣',
-	'😂',
-	'🙂',
-	'😉',
-	'😊',
-	'😇',
-	'🥰',
-	'😍',
-	'🤩',
-	'😘',
-	'😜',
-	'🤪',
-	'😎',
-	'🤓',
-	'😱',
-	'😴',
-	'👍',
-	'👎',
-	'❤️',
-	'🔥',
-	'🎉',
-	'💯',
-	'🚀',
-]
-
-/**
- * Основной компонент ChatWidget, в котором логика подключения к SignalR,
- * список сообщений, кнопка чата и окно с полем ввода.
+ * Основной компонент ChatWidget с расширенным функционалом:
+ * - вкладки (Друзья, Блокировка, Группы, Чат)
+ * - личные и групповые сообщения
+ * - удаление сообщений, очистка истории и т.д.
+ *
+ * СТИЛИ и ОСНОВА взяты из вашего исходного "ChatWidget.tsx", чтобы шторка работала так же.
  */
 const ChatWidget: React.FC = () => {
-	// Состояние соединения с SignalR
+	// -----------------------------------------------------
+	// 1. Состояния для управления вкладками и общими данными
+	// -----------------------------------------------------
+
+	/** Подключение к SignalR. */
 	const [connection, setConnection] = useState<HubConnection | null>(null)
-	// Список всех сообщений
-	const [messages, setMessages] = useState<ChatMessage[]>([])
-	// Текущее содержимое поля ввода
-	const [messageInput, setMessageInput] = useState('')
-	// Открыт ли чат
+
+	/** Открыт ли чат (сама шторка). */
 	const [isOpen, setIsOpen] = useState(false)
-	// Показывать ли окно эмодзи
-	const [showEmojiPicker, setShowEmojiPicker] = useState(false)
-	// Счётчик непрочитанных сообщений
+
+	/**
+	 * Текущая вкладка внутри шторки (friends/blocked/groups/chat).
+	 * По умолчанию — "chat", чтобы показывать список сообщений.
+	 */
+	const [activeTab, setActiveTab] = useState<
+		'chat' | 'friends' | 'blocked' | 'groups'
+	>('chat')
+
+	/**
+	 * Кто мы (ID текущего пользователя). Допустим, берём из localStorage
+	 * или, если там нет, ставим 123 (пример).
+	 */
+	const [currentUserId, setCurrentUserId] = useState<number>(123)
+
+	/** Список друзей, загруженный с сервера (или откуда-то ещё). */
+	const [friends, setFriends] = useState<Friend[]>([])
+
+	/** Список заблокированных пользователей. */
+	const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([])
+
+	/** Список групп, в которых мы состоим или которые доступны. */
+	const [groups, setGroups] = useState<GroupInfo[]>([])
+
+	/** ID выбранного друга, если мы хотим открыть ПРИВАТНЫЙ чат. */
+	const [selectedFriendId, setSelectedFriendId] = useState<number | null>(null)
+
+	/** ID выбранной группы, если мы хотим открыть ГРУППОВОЙ чат. */
+	const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
+
+	/** Список сообщений текущего чата (private или group). */
+	const [messages, setMessages] = useState<ChatMessageDto[]>([])
+
+	/** Поле ввода текста сообщения. */
+	const [messageInput, setMessageInput] = useState('')
+
+	/**
+	 * Счётчик непрочитанных сообщений (когда чат свёрнут).
+	 * Если окно закрыто, а пришли новые сообщения — растёт.
+	 */
 	const [unreadCount, setUnreadCount] = useState(0)
 
-	// Кто мы (имя пользователя берём из localStorage)
-	const usernameRef = useRef<string>('Anon')
-	useEffect(() => {
-		const storedName = localStorage.getItem('userName')
-		usernameRef.current = storedName || 'Anon'
-	}, [])
-
-	// --------------------------------------------------------------------------------
-	// ЛОГИКА ДЛЯ ПЕРЕТАСКИВАНИЯ:
-	// --------------------------------------------------------------------------------
-
-	// Флаг, был ли чат "хоть раз" перетащен
-	const [hasBeenDragged, setHasBeenDragged] = useState(false)
-
 	/**
-	 * Начальные координаты (x, y) сразу выставляем так,
-	 * чтобы окно (шириной 360, высотой ~400) "сидело" внизу справа.
-	 * Тогда при первом же перемещении не будет эффекта "прыжка".
+	 * Когда мы загрузим список друзей/групп/заблокированных,
+	 * в реальности это может быть через методы хаба или отдельный API.
+	 * Ниже — просто эмуляция (заполняем пустыми массивами).
 	 */
-	const [position, setPosition] = useState(() => {
-		const chatWidth = 360
-		const chatHeight = 400 // примерная общая высота
-		return {
-			x: window.innerWidth - chatWidth - 20,
-			y: window.innerHeight - chatHeight - 70,
+
+	// -----------------------------------------------------
+	// 2. Инициализация SignalR-соединения
+	// -----------------------------------------------------
+	useEffect(() => {
+		// Пример: получаем currentUserId из localStorage (или ставим 123).
+		const stored = localStorage.getItem('myUserId')
+		if (stored) {
+			setCurrentUserId(parseInt(stored))
+		} else {
+			localStorage.setItem('myUserId', '123')
+			setCurrentUserId(123)
 		}
-	})
 
-	// Смещение, когда пользователь начинает тянуть
-	const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-	// Идёт ли сейчас перетаскивание
-	const [isDragging, setIsDragging] = useState(false)
-
-	/**
-	 * "Зажим" (clamp) значения в диапазон [min, max].
-	 */
-	const clamp = (value: number, min: number, max: number) =>
-		Math.max(min, Math.min(value, max))
-
-	const onDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
-		e.preventDefault() // чтобы не выделялся текст и не было "глюков"
-		setHasBeenDragged(true)
-		setIsDragging(true)
-		setDragOffset({
-			x: e.clientX - position.x,
-			y: e.clientY - position.y,
-		})
-	}
-
-	const onDrag = (e: React.MouseEvent<HTMLDivElement>) => {
-		if (!isDragging) return
-
-		// Учитываем габариты чата для "зажима" в пределах экрана
-		const chatWidth = 360
-		const chatHeight = 400 // примерная высота (сообщения + хедер + поле ввода)
-
-		let newX = e.clientX - dragOffset.x
-		let newY = e.clientY - dragOffset.y
-
-		newX = clamp(newX, 0, window.innerWidth - chatWidth)
-		newY = clamp(newY, 0, window.innerHeight - chatHeight)
-
-		setPosition({ x: newX, y: newY })
-	}
-
-	const onDragEnd = () => {
-		setIsDragging(false)
-	}
-
-	// --------------------------------------------------------------------------------
-	// Конец блока перетаскивания
-	// --------------------------------------------------------------------------------
-
-	// Создаём подключение к SignalR (единожды)
-	useEffect(() => {
 		if (connection) return
 
 		const newConnection = new HubConnectionBuilder()
 			.withUrl('http://localhost:5100/chatHub', {
+				// Если нужно отправлять JWT-токен:
 				accessTokenFactory: () => {
 					const token = localStorage.getItem('jwtToken')
 					return token ?? ''
@@ -214,7 +134,9 @@ const ChatWidget: React.FC = () => {
 		setConnection(newConnection)
 	}, [connection])
 
-	// Запуск подключения и подписка на события
+	/**
+	 * Запускаем соединение и подписываемся на события: ReceivePrivateMessage, ReceiveGroupMessage.
+	 */
 	useEffect(() => {
 		if (!connection) return
 
@@ -222,182 +144,357 @@ const ChatWidget: React.FC = () => {
 			connection
 				.start()
 				.then(() => {
-					console.log('SignalR Chat Connected.')
-					// Подписываемся на события
-					connection.on('ReceiveMessage', handleReceiveMessage)
-					connection.on('ReceiveFile', handleReceiveFile)
+					console.log('SignalR connected.')
+					// Подписываемся на события, которые присылает сервер:
+					connection.on('ReceivePrivateMessage', handleReceivePrivateMessage)
+					connection.on('ReceiveGroupMessage', handleReceiveGroupMessage)
+
+					// Если нужно — подгружаем списки друзей, групп, блоков:
+					loadInitialData()
 				})
-				.catch(err => console.error('SignalR Connection Error: ', err))
+				.catch(err => {
+					console.error('SignalR Connection Error: ', err)
+				})
 		}
 
+		// Когда компонент размонтируется — отписываемся:
 		return () => {
 			if (connection) {
-				connection.off('ReceiveMessage', handleReceiveMessage)
-				connection.off('ReceiveFile', handleReceiveFile)
+				connection.off('ReceivePrivateMessage', handleReceivePrivateMessage)
+				connection.off('ReceiveGroupMessage', handleReceiveGroupMessage)
 			}
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [connection])
 
-	// Обработчик входящего текстового сообщения
-	const handleReceiveMessage = (user: string, message: string) => {
-		// Если пришло сообщение от другого пользователя
-		if (user !== usernameRef.current) {
-			setMessages(prev => [
-				...prev,
-				{ id: Date.now().toString(), user, type: 'text', text: message },
-			])
-			if (!isOpen) {
-				setUnreadCount(count => count + 1)
-			}
+	// -----------------------------------------------------
+	// 3. Обработчики входящих сообщений
+	// -----------------------------------------------------
+	/**
+	 * Получаем личное сообщение от сервера.
+	 */
+	const handleReceivePrivateMessage = (msgDto: ChatMessageDto) => {
+		// Если чат открыт и именно с этим пользователем (selectedFriendId),
+		// то добавляем в список сообщений. Иначе — увеличиваем unreadCount.
+		const isChatOpen =
+			isOpen && activeTab === 'chat' && selectedFriendId !== null
+		const involvedFriend =
+			msgDto.fromUserId === currentUserId ? msgDto.toUserId : msgDto.fromUserId
+
+		if (isChatOpen && involvedFriend === selectedFriendId) {
+			setMessages(prev => [...prev, msgDto])
+		} else {
+			// если окно чата закрыто или другая вкладка, увеличим unread
+			setUnreadCount(c => c + 1)
 		}
 	}
 
-	// Обработчик входящего файла
-	const handleReceiveFile = (
-		user: string,
-		fileName: string,
-		fileType: string,
-		base64Data: string
-	) => {
-		// Аналогично, если файл прислал другой пользователь
-		if (user !== usernameRef.current) {
-			setMessages(prev => [
-				...prev,
-				{
-					id: Date.now().toString(),
-					user,
-					type: 'file',
-					fileName,
-					fileType,
-					base64Data,
-				},
-			])
-			if (!isOpen) {
-				setUnreadCount(count => count + 1)
-			}
+	/**
+	 * Получаем групповое сообщение от сервера.
+	 */
+	const handleReceiveGroupMessage = (msgDto: ChatMessageDto) => {
+		if (!msgDto.groupId) return
+		// Аналогично — если открыта вкладка chat и мы смотрим именно на эту группу:
+		const isChatOpen =
+			isOpen && activeTab === 'chat' && selectedGroupId !== null
+		if (isChatOpen && msgDto.groupId === selectedGroupId) {
+			setMessages(prev => [...prev, msgDto])
+		} else {
+			setUnreadCount(c => c + 1)
 		}
 	}
 
-	// Отправка текстового сообщения
+	// -----------------------------------------------------
+	// 4. Загрузка первичных данных (друзья, блоки, группы)
+	// -----------------------------------------------------
+	const loadInitialData = async () => {
+		// Пример: если на бэке есть методы: GetFriends, GetBlockedUsers, GetGroups — можно вызвать их
+		if (!connection) return
+
+		try {
+			// Запросим список друзей
+			// (В вашем коде таких методов может и не быть. Можно сделать через API-контроллер, а не через хаб.)
+			// const friendsFromServer = await connection.invoke<Friend[]>('GetFriends')
+			// setFriends(friendsFromServer)
+
+			// const blockedFromServer = await connection.invoke<BlockedUser[]>('GetBlockedUsers')
+			// setBlockedUsers(blockedFromServer)
+
+			// const groupsFromServer = await connection.invoke<GroupInfo[]>('GetGroups')
+			// setGroups(groupsFromServer)
+
+			// Или просто поставим пустые — в реальном проекте заменить на реальную логику:
+			setFriends([])
+			setBlockedUsers([])
+			setGroups([])
+		} catch (error) {
+			console.error('Ошибка при загрузке начальных данных:', error)
+		}
+	}
+
+	// -----------------------------------------------------
+	// 5. Переключение на чат (private) с другом
+	// -----------------------------------------------------
+	const openPrivateChat = async (friendId: number) => {
+		setSelectedFriendId(friendId)
+		setSelectedGroupId(null)
+		setActiveTab('chat')
+		setMessages([])
+		setIsOpen(true) // открываем окно чата
+
+		try {
+			if (!connection) return
+			// Запросим историю у бэка
+			// (должен быть метод на хабе, напр.: GetPrivateMessages(int friendUserId))
+			const history = await connection.invoke<ChatMessageDto[]>(
+				'GetPrivateMessages',
+				friendId
+			)
+			setMessages(history)
+		} catch (err) {
+			console.error('Не удалось загрузить историю личных сообщений', err)
+		}
+	}
+
+	// -----------------------------------------------------
+	// 6. Переключение на чат (group) с группой
+	// -----------------------------------------------------
+	const openGroupChat = async (groupId: number) => {
+		setSelectedGroupId(groupId)
+		setSelectedFriendId(null)
+		setActiveTab('chat')
+		setMessages([])
+		setIsOpen(true) // открываем окно чата
+
+		try {
+			if (!connection) return
+			// Сначала попросим бэкенд добавить нас в группу (JoinGroup)
+			await connection.invoke('JoinGroup', groupId)
+			// Теперь грузим историю
+			const history = await connection.invoke<ChatMessageDto[]>(
+				'GetGroupMessages',
+				groupId
+			)
+			setMessages(history)
+		} catch (err) {
+			console.error('Не удалось загрузить историю группы', err)
+		}
+	}
+
+	// -----------------------------------------------------
+	// 7. Отправка сообщения (private или group)
+	// -----------------------------------------------------
 	const sendMessage = async () => {
 		if (!connection || !messageInput.trim()) return
+
 		try {
-			await connection.invoke('SendMessage', usernameRef.current, messageInput)
-			// Добавляем себе локально
-			setMessages(prev => [
-				...prev,
-				{
-					id: Date.now().toString(),
-					user: usernameRef.current,
-					type: 'text',
-					text: messageInput,
-				},
-			])
+			if (selectedFriendId) {
+				// Личный чат
+				await connection.invoke(
+					'SendPrivateMessage',
+					selectedFriendId,
+					messageInput
+				)
+			} else if (selectedGroupId) {
+				// Групповой
+				await connection.invoke(
+					'SendGroupMessage',
+					selectedGroupId,
+					messageInput
+				)
+			}
+
 			setMessageInput('')
 		} catch (err) {
-			console.error('SendMessage error:', err)
+			console.error('Ошибка отправки сообщения:', err)
 		}
 	}
 
-	// Отправка файла
-	const sendFile = async (file: File) => {
-		if (!connection || !file) return
+	// -----------------------------------------------------
+	// 8. Добавить/удалить друга (по userId)
+	// -----------------------------------------------------
+	const [addFriendId, setAddFriendId] = useState<number>(0)
+
+	const handleAddFriend = async () => {
+		if (!connection || !addFriendId) return
 		try {
-			const reader = new FileReader()
-			reader.onload = async () => {
-				if (typeof reader.result === 'string') {
-					const base64str = reader.result.split(',')[1] || ''
-					const mimeType = file.type
-
-					await connection.invoke(
-						'SendFile',
-						usernameRef.current,
-						file.name,
-						mimeType,
-						base64str
-					)
-
-					// Добавляем локально, чтобы сразу увидеть отправленный файл
-					setMessages(prev => [
-						...prev,
-						{
-							id: Date.now().toString(),
-							user: usernameRef.current,
-							type: 'file',
-							fileName: file.name,
-							fileType: mimeType,
-							base64Data: base64str,
-						},
-					])
-				}
-			}
-			reader.readAsDataURL(file)
-		} catch (err) {
-			console.error('SendFile error:', err)
+			await connection.invoke('AddFriend', addFriendId)
+			// В реальности запросим актуальный список друзей,
+			// а пока просто добавим &laquo;вручную&raquo;
+			setFriends(prev => [
+				...prev,
+				{ userId: addFriendId, userName: `User #${addFriendId}` },
+			])
+			setAddFriendId(0)
+		} catch (error) {
+			console.error('Ошибка AddFriend:', error)
 		}
 	}
 
-	// Закрыть/открыть чат
+	const removeFriend = async (friendId: number) => {
+		if (!connection) return
+		try {
+			await connection.invoke('RemoveFriend', friendId)
+			setFriends(prev => prev.filter(f => f.userId !== friendId))
+		} catch (error) {
+			console.error('Ошибка RemoveFriend:', error)
+		}
+	}
+
+	// -----------------------------------------------------
+	// 9. Блокировка/разблокировка (по userId)
+	// -----------------------------------------------------
+	const [blockUserId, setBlockUserId] = useState<number>(0)
+
+	const handleBlockUser = async () => {
+		if (!connection || !blockUserId) return
+		try {
+			await connection.invoke('BlockUser', blockUserId)
+			setBlockedUsers(prev => [
+				...prev,
+				{ userId: blockUserId, userName: `User #${blockUserId}` },
+			])
+			setBlockUserId(0)
+		} catch (error) {
+			console.error('Ошибка BlockUser:', error)
+		}
+	}
+
+	const unblockUser = async (uId: number) => {
+		if (!connection) return
+		try {
+			await connection.invoke('UnblockUser', uId)
+			setBlockedUsers(prev => prev.filter(b => b.userId !== uId))
+		} catch (error) {
+			console.error('Ошибка UnblockUser:', error)
+		}
+	}
+
+	// -----------------------------------------------------
+	// 10. Удаление сообщения и очистка истории
+	// -----------------------------------------------------
+	const deleteMessage = async (msgId: number) => {
+		if (!connection) return
+		try {
+			await connection.invoke('DeleteMessage', msgId)
+			// Удалим локально
+			setMessages(prev => prev.filter(m => m.id !== msgId))
+		} catch (error: any) {
+			alert('Ошибка при удалении сообщения: ' + error?.message)
+		}
+	}
+
+	const clearHistory = async () => {
+		if (!connection) return
+		try {
+			if (selectedFriendId) {
+				await connection.invoke('ClearPrivateHistory', selectedFriendId)
+			} else if (selectedGroupId) {
+				await connection.invoke('ClearGroupHistory', selectedGroupId)
+			}
+			setMessages([])
+		} catch (error: any) {
+			alert('Ошибка при очистке истории: ' + error?.message)
+		}
+	}
+
+	// -----------------------------------------------------
+	// 11. Создание группы
+	// -----------------------------------------------------
+	const [newGroupName, setNewGroupName] = useState('')
+
+	const handleCreateGroup = async () => {
+		if (!connection || !newGroupName.trim()) return
+		try {
+			const newGid = await connection.invoke<number>(
+				'CreateGroup',
+				newGroupName
+			)
+			setGroups(prev => [...prev, { groupId: newGid, groupName: newGroupName }])
+			setNewGroupName('')
+		} catch (error) {
+			console.error('Ошибка CreateGroup:', error)
+		}
+	}
+
+	// -----------------------------------------------------
+	// 12. Закрыть/открыть чат
+	// -----------------------------------------------------
 	const toggleChat = () => {
 		if (!isOpen) {
-			setUnreadCount(0)
+			setUnreadCount(0) // сбрасываем счётчик, раз открыли
 		}
 		setIsOpen(!isOpen)
 	}
 
-	// Отправка по Enter
-	const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-		if (e.key === 'Enter') {
-			e.preventDefault()
-			sendMessage()
-		}
-	}
-
-	// Отправка файла (через input[type=file])
-	const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-		const file = e.target.files?.[0]
-		if (file) {
-			sendFile(file)
-			e.target.value = ''
-		}
-	}
-
-	// Добавление эмодзи в сообщение
-	const addEmoji = (emojiSymbol: string) => {
-		setMessageInput(prev => prev + emojiSymbol)
-	}
-
-	// --------------------------------------------------------------------------------
-	// Автоматическая прокрутка списка сообщений вниз при появлении новых сообщений:
-	// --------------------------------------------------------------------------------
-
+	// -----------------------------------------------------
+	// 13. Логика скролла вниз при новых сообщениях
+	// -----------------------------------------------------
 	const messagesEndRef = useRef<HTMLDivElement | null>(null)
-
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
 	}, [messages])
 
-	// --------------------------------------------------------------------------------
-	// Формируем стили для окна чата:
-	// --------------------------------------------------------------------------------
+	// -----------------------------------------------------
+	// 14. Логика перетаскивания окна (как в исходном ChatWidget)
+	//     Если хотите упростить — можно выпилить.
+	// -----------------------------------------------------
+	const [hasBeenDragged, setHasBeenDragged] = useState(false)
+	const [position, setPosition] = useState(() => {
+		const chatWidth = 360
+		const chatHeight = 400
+		return {
+			x: window.innerWidth - chatWidth - 20,
+			y: window.innerHeight - chatHeight - 70,
+		}
+	})
+	const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+	const [isDragging, setIsDragging] = useState(false)
+
+	const clamp = (val: number, min: number, max: number) =>
+		Math.max(min, Math.min(val, max))
+
+	const onDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
+		e.preventDefault()
+		setHasBeenDragged(true)
+		setIsDragging(true)
+		setDragOffset({
+			x: e.clientX - position.x,
+			y: e.clientY - position.y,
+		})
+	}
+
+	const onDrag = (e: React.MouseEvent<HTMLDivElement>) => {
+		if (!isDragging) return
+		const chatWidth = 360
+		const chatHeight = 500 // с запасом
+		let newX = e.clientX - dragOffset.x
+		let newY = e.clientY - dragOffset.y
+		newX = clamp(newX, 0, window.innerWidth - chatWidth)
+		newY = clamp(newY, 0, window.innerHeight - chatHeight)
+		setPosition({ x: newX, y: newY })
+	}
+
+	const onDragEnd = () => {
+		setIsDragging(false)
+	}
+
+	// -----------------------------------------------------
+	// Рендер
+	// -----------------------------------------------------
+	// Стиль для окошка чата с учётом перетаскивания
 	const chatWindowStyle: React.CSSProperties = {
 		...styles.chatWindow,
 		position: 'fixed',
-		/**
-		 * Если окно НЕ было перетащено ни разу, крепим его снизу справа (как и раньше).
-		 * Если окно было перетащено, используем координаты top/left из состояния.
-		 */
 		...(hasBeenDragged
 			? { top: `${position.y}px`, left: `${position.x}px` }
 			: { bottom: '70px', right: '20px' }),
-		// Указатель мыши во время перетаскивания:
 		cursor: isDragging ? 'grabbing' : 'default',
 	}
 
 	return (
 		<>
-			{/* Кнопка чата (правый нижний угол) */}
+			{/* Кнопка чата в правом нижнем углу */}
 			<div style={styles.chatButtonContainer}>
 				<button
 					style={{
@@ -407,120 +504,255 @@ const ChatWidget: React.FC = () => {
 					onClick={toggleChat}
 					title='Открыть/закрыть чат'
 				>
-					{unreadCount > 0 ? `💬 (${unreadCount})` : '💬'}
+					{unreadCount > 0 ? `💬(${unreadCount})` : '💬'}
 				</button>
 			</div>
 
-			{/* Окно чата, если оно открыто */}
+			{/* Окно чата, если открыто */}
 			{isOpen && (
 				<div
 					style={chatWindowStyle}
 					className='chat-window-animation'
-					// Назначаем обработчики перетаскивания на всю область окна
 					onMouseMove={onDrag}
 					onMouseUp={onDragEnd}
 				>
-					{/* Шапка чата (за неё "тянем" окно) */}
+					{/* Шапка чата (за неё "тянем") */}
 					<div
 						style={styles.header}
 						onMouseDown={onDragStart}
 						onMouseUp={onDragEnd}
 					>
-						<span>Чатик</span>
+						<span>Полнофункциональный Чат</span>
 						<button style={styles.closeBtn} onClick={toggleChat}>
 							✕
 						</button>
 					</div>
 
-					{/* Список сообщений */}
-					<div style={styles.messagesContainer}>
-						{messages.length === 0 && (
-							<div style={{ textAlign: 'center', color: '#aaa' }}>
-								Нет сообщений
-							</div>
-						)}
-						{messages.map((msg, idx) => (
-							<div
-								key={msg.id}
-								style={{
-									...styles.messageItem,
-									animationDelay: `${0.02 * idx}s`,
-								}}
-								className='fade-in-message'
-							>
-								<strong>{msg.user}:</strong>{' '}
-								{msg.type === 'text' && <span>{msg.text}</span>}
-								{msg.type === 'file' && (
-									<FileMessage
-										fileName={msg.fileName!}
-										fileType={msg.fileType!}
-										base64Data={msg.base64Data!}
-									/>
-								)}
-							</div>
-						))}
-						{/* "Якорь" для автоскролла вниз */}
-						<div ref={messagesEndRef} />
+					{/* Вкладки: Друзья / Блок / Группы / Чат */}
+					<div style={styles.tabsRow}>
+						<button
+							onClick={() => setActiveTab('chat')}
+							style={activeTab === 'chat' ? styles.activeTabBtn : styles.tabBtn}
+						>
+							Чат
+						</button>
+						<button
+							onClick={() => setActiveTab('friends')}
+							style={
+								activeTab === 'friends' ? styles.activeTabBtn : styles.tabBtn
+							}
+						>
+							Друзья
+						</button>
+						<button
+							onClick={() => setActiveTab('blocked')}
+							style={
+								activeTab === 'blocked' ? styles.activeTabBtn : styles.tabBtn
+							}
+						>
+							Блок
+						</button>
+						<button
+							onClick={() => setActiveTab('groups')}
+							style={
+								activeTab === 'groups' ? styles.activeTabBtn : styles.tabBtn
+							}
+						>
+							Группы
+						</button>
 					</div>
 
-					{/* Поле ввода, кнопки для файлов, эмодзи и отправки */}
-					<div style={styles.inputContainer}>
-						<label style={styles.fileLabel}>
-							📎
-							<input
-								type='file'
-								style={{ display: 'none' }}
-								onChange={handleFileChange}
-							/>
-						</label>
-
-						<input
-							type='text'
-							style={styles.inputField}
-							value={messageInput}
-							onChange={e => setMessageInput(e.target.value)}
-							onKeyPress={handleKeyPress}
-							placeholder='Введите сообщение...'
-						/>
-
-						{/* Кнопка эмодзи */}
-						<button
-							style={styles.emojiBtn}
-							onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-							title='Вставить эмодзи'
-						>
-							😃
-						</button>
-
-						{/* Окно с эмодзи */}
-						{showEmojiPicker && (
-							<div style={styles.emojiPicker} className='fade-in-emoji'>
-								{EMOJIS.map((emoji, i) => (
-									<span
-										key={i}
-										style={styles.emojiItem}
-										onClick={() => {
-											addEmoji(emoji)
-											setShowEmojiPicker(false)
+					{/* Содержимое вкладок */}
+					<div style={styles.tabContent}>
+						{activeTab === 'chat' && (
+							<>
+								{/* Если никакой чат не выбран — выводим подсказку. 
+                                    Иначе — показываем список сообщений. */}
+								{!selectedFriendId && !selectedGroupId && (
+									<div
+										style={{
+											textAlign: 'center',
+											color: '#aaa',
+											marginTop: '20px',
 										}}
 									>
-										{emoji}
-									</span>
+										Выберите друга или группу, чтобы начать чат
+									</div>
+								)}
+								{(selectedFriendId || selectedGroupId) && (
+									<>
+										<div style={{ textAlign: 'right', marginBottom: '5px' }}>
+											<button
+												onClick={clearHistory}
+												style={styles.clearHistoryBtn}
+											>
+												Очистить историю
+											</button>
+										</div>
+										<div style={styles.messagesContainer}>
+											{messages.length === 0 && (
+												<div style={{ textAlign: 'center', color: '#aaa' }}>
+													Нет сообщений
+												</div>
+											)}
+											{messages.map(msg => (
+												<div key={msg.id} style={styles.messageItem}>
+													<div
+														style={{
+															display: 'flex',
+															justifyContent: 'space-between',
+														}}
+													>
+														<strong>{`От: ${msg.fromUserId}`}</strong>
+														<button
+															style={styles.deleteMsgBtn}
+															onClick={() => deleteMessage(msg.id)}
+														>
+															Удалить
+														</button>
+													</div>
+													<div>{msg.messageText}</div>
+													<div style={{ fontSize: '0.8em', color: '#ccc' }}>
+														{new Date(msg.createdAt).toLocaleString()}
+													</div>
+												</div>
+											))}
+											<div ref={messagesEndRef} />
+										</div>
+
+										{/* Поле ввода */}
+										<div style={styles.inputContainer}>
+											<input
+												type='text'
+												style={styles.inputField}
+												value={messageInput}
+												onChange={e => setMessageInput(e.target.value)}
+												onKeyDown={e => {
+													if (e.key === 'Enter') {
+														e.preventDefault()
+														sendMessage()
+													}
+												}}
+												placeholder='Введите сообщение...'
+											/>
+											<button style={styles.sendBtn} onClick={sendMessage}>
+												Отправить
+											</button>
+										</div>
+									</>
+								)}
+							</>
+						)}
+
+						{activeTab === 'friends' && (
+							<div>
+								<h4>Мои друзья:</h4>
+								{friends.length === 0 && (
+									<div style={{ color: '#ccc' }}>Пока нет друзей</div>
+								)}
+								{friends.map(fr => (
+									<div key={fr.userId} style={styles.listRow}>
+										<span
+											onClick={() => openPrivateChat(fr.userId)}
+											style={{ cursor: 'pointer', flex: 1 }}
+											title='Открыть личный чат'
+										>
+											{fr.userName} (#{fr.userId})
+										</span>
+										<button onClick={() => removeFriend(fr.userId)}>
+											Удалить
+										</button>
+									</div>
 								))}
+								<hr style={{ margin: '8px 0' }} />
+								<div style={{ marginBottom: '5px' }}>
+									Добавить в друзья (ID):
+								</div>
+								<div style={{ display: 'flex', gap: '5px' }}>
+									<input
+										type='number'
+										value={addFriendId}
+										onChange={e => setAddFriendId(Number(e.target.value))}
+										style={{ flex: 1 }}
+									/>
+									<button onClick={handleAddFriend}>Добавить</button>
+								</div>
 							</div>
 						)}
 
-						{/* Кнопка отправки */}
-						<button style={styles.sendBtn} onClick={sendMessage}>
-							Отправить
-						</button>
+						{activeTab === 'blocked' && (
+							<div>
+								<h4>Заблокированные пользователи:</h4>
+								{blockedUsers.length === 0 && (
+									<div style={{ color: '#ccc' }}>
+										Пока никого не заблокировали
+									</div>
+								)}
+								{blockedUsers.map(bu => (
+									<div key={bu.userId} style={styles.listRow}>
+										<span style={{ flex: 1 }}>
+											{bu.userName} (#{bu.userId})
+										</span>
+										<button onClick={() => unblockUser(bu.userId)}>
+											Разблокировать
+										</button>
+									</div>
+								))}
+
+								<hr style={{ margin: '8px 0' }} />
+								<div style={{ marginBottom: '5px' }}>
+									Заблокировать пользователя (ID):
+								</div>
+								<div style={{ display: 'flex', gap: '5px' }}>
+									<input
+										type='number'
+										value={blockUserId}
+										onChange={e => setBlockUserId(Number(e.target.value))}
+										style={{ flex: 1 }}
+									/>
+									<button onClick={handleBlockUser}>Блок</button>
+								</div>
+							</div>
+						)}
+
+						{activeTab === 'groups' && (
+							<div>
+								<h4>Мои группы:</h4>
+								{groups.length === 0 && (
+									<div style={{ color: '#ccc' }}>Пока нет групп</div>
+								)}
+								{groups.map(g => (
+									<div key={g.groupId} style={styles.listRow}>
+										<span
+											onClick={() => openGroupChat(g.groupId)}
+											style={{ cursor: 'pointer', flex: 1 }}
+											title='Открыть групповой чат'
+										>
+											{g.groupName} (ID {g.groupId})
+										</span>
+									</div>
+								))}
+
+								<hr style={{ margin: '8px 0' }} />
+								<div style={{ marginBottom: '5px' }}>Создать новую группу:</div>
+								<div style={{ display: 'flex', gap: '5px' }}>
+									<input
+										type='text'
+										placeholder='Название группы'
+										value={newGroupName}
+										onChange={e => setNewGroupName(e.target.value)}
+										style={{ flex: 1 }}
+									/>
+									<button onClick={handleCreateGroup}>Создать</button>
+								</div>
+							</div>
+						)}
 					</div>
 				</div>
 			)}
 
-			{/* Внутренние стили/анимации */}
+			{/* Набор анимаций (из вашего кода) */}
 			<style>{`
-        /* Анимация окна чата при открытии */
         .chat-window-animation {
           animation: slideUp 0.4s ease forwards;
         }
@@ -528,17 +760,6 @@ const ChatWidget: React.FC = () => {
           from { transform: translateY(50px); opacity: 0; }
           to { transform: translateY(0); opacity: 1; }
         }
-
-        /* Анимация появления сообщения */
-        .fade-in-message {
-          animation: fadeIn 0.3s forwards;
-        }
-        @keyframes fadeIn {
-          from {opacity: 0; transform: translateY(5px);}
-          to {opacity: 1; transform: translateY(0);}
-        }
-
-        /* Анимация пульсации кнопки при новых сообщениях */
         @keyframes pulse {
           0% {
             transform: scale(1);
@@ -558,9 +779,9 @@ const ChatWidget: React.FC = () => {
 	)
 }
 
-/**
- * Набор стилей для чата (тёмная тема + фиксация внизу справа по умолчанию).
- */
+// -----------------------------------------------------
+// Стили — взяты из вашего кода, плюс чуть расширены
+// -----------------------------------------------------
 const styles: { [key: string]: React.CSSProperties } = {
 	chatButtonContainer: {
 		position: 'fixed',
@@ -591,6 +812,8 @@ const styles: { [key: string]: React.CSSProperties } = {
 		backgroundColor: '#2b2b2b',
 		zIndex: 9999,
 		borderRadius: '6px',
+		color: '#fff',
+		maxHeight: '500px',
 	},
 	header: {
 		backgroundColor: '#555',
@@ -602,7 +825,7 @@ const styles: { [key: string]: React.CSSProperties } = {
 		alignItems: 'center',
 		borderTopLeftRadius: '6px',
 		borderTopRightRadius: '6px',
-		cursor: 'grab', // указываем, что окно можно "тянуть"
+		cursor: 'grab',
 	},
 	closeBtn: {
 		background: 'transparent',
@@ -611,20 +834,52 @@ const styles: { [key: string]: React.CSSProperties } = {
 		fontSize: '16px',
 		cursor: 'pointer',
 	},
-	messagesContainer: {
+	tabsRow: {
+		display: 'flex',
+		borderBottom: '1px solid #444',
+	},
+	tabBtn: {
+		flex: 1,
+		backgroundColor: 'transparent',
+		border: 'none',
+		color: '#aaa',
+		padding: '8px',
+		cursor: 'pointer',
+		fontWeight: 'bold',
+	},
+	activeTabBtn: {
+		flex: 1,
+		backgroundColor: '#333',
+		border: 'none',
+		color: '#fff',
+		padding: '8px',
+		cursor: 'pointer',
+		fontWeight: 'bold',
+	},
+	tabContent: {
 		flex: 1,
 		padding: '8px',
 		overflowY: 'auto',
-		maxHeight: '300px',
+	},
+	messagesContainer: {
 		backgroundColor: '#2b2b2b',
+		maxHeight: '270px',
+		overflowY: 'auto',
+		paddingRight: '5px',
+		marginBottom: '5px',
 	},
 	messageItem: {
-		marginBottom: '10px',
-		fontSize: '0.9rem',
-		padding: '6px 8px',
+		backgroundColor: '#3b3b3b',
+		padding: '6px',
 		borderRadius: '4px',
-		background: '#3b3b3b',
-		color: '#fff',
+		marginBottom: '6px',
+	},
+	deleteMsgBtn: {
+		background: 'transparent',
+		border: 'none',
+		color: 'red',
+		fontSize: '0.9rem',
+		cursor: 'pointer',
 	},
 	inputContainer: {
 		display: 'flex',
@@ -636,11 +891,6 @@ const styles: { [key: string]: React.CSSProperties } = {
 		borderBottomLeftRadius: '6px',
 		borderBottomRightRadius: '6px',
 	},
-	fileLabel: {
-		cursor: 'pointer',
-		fontSize: '1.2rem',
-		color: '#fff',
-	},
 	inputField: {
 		flex: 1,
 		border: '1px solid #444',
@@ -651,34 +901,6 @@ const styles: { [key: string]: React.CSSProperties } = {
 		color: '#fff',
 		borderRadius: '4px',
 	},
-	emojiBtn: {
-		backgroundColor: 'transparent',
-		border: 'none',
-		fontSize: '1.3rem',
-		cursor: 'pointer',
-		outline: 'none',
-		color: '#fff',
-		padding: '0 8px',
-	},
-	emojiPicker: {
-		position: 'absolute',
-		bottom: '45px',
-		right: '90px', // чтобы не заслонять кнопку "Отправить"
-		backgroundColor: '#2b2b2b',
-		border: '1px solid #444',
-		borderRadius: '8px',
-		padding: '8px',
-		width: '180px',
-		display: 'flex',
-		flexWrap: 'wrap',
-		boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-		zIndex: 99999,
-	},
-	emojiItem: {
-		fontSize: '1.2rem',
-		margin: '4px',
-		cursor: 'pointer',
-	},
 	sendBtn: {
 		backgroundColor: '#4caf50',
 		border: 'none',
@@ -688,6 +910,24 @@ const styles: { [key: string]: React.CSSProperties } = {
 		borderRadius: '4px',
 		fontSize: '0.9rem',
 		outline: 'none',
+	},
+	clearHistoryBtn: {
+		backgroundColor: '#d26700',
+		border: 'none',
+		padding: '6px 10px',
+		borderRadius: '4px',
+		cursor: 'pointer',
+		color: '#fff',
+		fontSize: '0.8rem',
+	},
+	listRow: {
+		display: 'flex',
+		gap: '5px',
+		alignItems: 'center',
+		background: '#3b3b3b',
+		padding: '4px 6px',
+		borderRadius: '4px',
+		marginBottom: '5px',
 	},
 }
 
