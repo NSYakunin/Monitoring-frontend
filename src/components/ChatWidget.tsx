@@ -7,7 +7,7 @@ import {
 } from '@microsoft/signalr'
 
 /**
- * DTO-сообщение (как в бэкенде).
+ * DTO-сообщение (как на сервере).
  */
 interface ChatMessageDto {
 	id: number
@@ -19,7 +19,7 @@ interface ChatMessageDto {
 }
 
 /**
- * DTO для пользователя (например, UserDto).
+ * DTO для пользователя.
  */
 interface UserDto {
 	userId: number
@@ -27,18 +27,17 @@ interface UserDto {
 }
 
 /**
- * Утилита для вытаскивания userId из JWT (claim "nameidentifier").
+ * Парсит userId из JWT (claim "nameidentifier").
  */
 const getUserIdFromJwt = (token: string | null): number | null => {
 	if (!token) return null
 	try {
-		// JWT = header.payload.signature &rarr; берём payload
-		const payloadBase64 = token.split('.')[1]
+		const payloadBase64 = token.split('.')[1] // header.payload.signature
 		const payloadJson = atob(
 			payloadBase64.replace(/-/g, '+').replace(/_/g, '/')
 		)
 		const payload = JSON.parse(payloadJson)
-		// обычно "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier"
+		// Обычно: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier"
 		const claim =
 			payload[
 				'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier'
@@ -51,53 +50,53 @@ const getUserIdFromJwt = (token: string | null): number | null => {
 
 /**
  * Основной компонент ChatWidget.
- *
- * Сообщения появляются мгновенно (у обоих), без повторного входа во вкладку "Друзья".
  */
 const ChatWidget: React.FC = () => {
-	// -------------------------------
+	// --------------------------------------------------
 	// 1. Состояния
-	// -------------------------------
+	// --------------------------------------------------
 	const [connection, setConnection] = useState<HubConnection | null>(null)
-	const [isOpen, setIsOpen] = useState(false)
+	const [isOpen, setIsOpen] = useState(false) // открыт ли чат
 
-	// Какую вкладку показывать — 'chat' | 'friends' | 'blocked' | 'groups'
+	// Текущая вкладка: 'chat' | 'friends' | 'blocked' | 'groups'
 	const [activeTab, setActiveTab] = useState<
 		'chat' | 'friends' | 'blocked' | 'groups'
 	>('chat')
 
-	// userId берём из JWT
+	// Наш userId (из JWT)
 	const [currentUserId, setCurrentUserId] = useState<number | null>(null)
 
-	// Счётчик непрочитанных
-	const [unreadCount, setUnreadCount] = useState(0)
-
-	// Друзья (список)
+	// Все "друзья", все "прочие пользователи", заблокированные, группы
 	const [friends, setFriends] = useState<UserDto[]>([])
-	// Список всех юзеров (кроме нас), чтобы выбирать кого добавить
 	const [allUsersExceptMe, setAllUsersExceptMe] = useState<UserDto[]>([])
-
-	// Текущий выбранный friendId (либо null, если не выбран)
-	const [selectedFriendId, setSelectedFriendId] = useState<number | null>(null)
-
-	// Группы, выбранная группа
+	const [blockedUsers, setBlockedUsers] = useState<UserDto[]>([])
 	const [groups, setGroups] = useState<
 		{ groupId: number; groupName: string }[]
 	>([])
-	const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
 
-	// Здесь мы будем хранить все прилетевшие приватные сообщения
+	// Все сообщения (все, что пришло или загружено)
 	const [allMessages, setAllMessages] = useState<ChatMessageDto[]>([])
 
-	// Текст из поля ввода
+	// Выбранный собеседник (friendId) или группа (groupId)
+	const [selectedFriendId, setSelectedFriendId] = useState<number | null>(null)
+	const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
+
+	// Поле ввода
 	const [messageInput, setMessageInput] = useState('')
 
-	// Заблокированные пользователи
-	const [blockedUsers, setBlockedUsers] = useState<UserDto[]>([])
+	/**
+	 * Карта непрочитанных: у какого userId сколько непрочитанных сообщений.
+	 * Пример:
+	 * {
+	 *   101: 2,  // от пользователя #101 непрочитанных 2
+	 *   205: 1,  // от пользователя #205 непрочитанное 1
+	 * }
+	 */
+	const [unreadMap, setUnreadMap] = useState<{ [userId: number]: number }>({})
 
-	// -------------------------------
+	// --------------------------------------------------
 	// 2. Инициализация соединения (useEffect #1)
-	// -------------------------------
+	// --------------------------------------------------
 	useEffect(() => {
 		const token = localStorage.getItem('jwtToken')
 		const idFromToken = getUserIdFromJwt(token)
@@ -108,7 +107,6 @@ const ChatWidget: React.FC = () => {
 		}
 
 		if (!connection) {
-			// Создаем connection
 			const newConnection = new HubConnectionBuilder()
 				.withUrl('http://localhost:5100/chatHub', {
 					accessTokenFactory: () => token ?? '',
@@ -121,9 +119,9 @@ const ChatWidget: React.FC = () => {
 		}
 	}, [connection])
 
-	// -------------------------------
-	// 3. Стартуем соединение и слушаем события (useEffect #2)
-	// -------------------------------
+	// --------------------------------------------------
+	// 3. Запуск соединения + подписки (useEffect #2)
+	// --------------------------------------------------
 	useEffect(() => {
 		if (!connection) return
 
@@ -133,11 +131,11 @@ const ChatWidget: React.FC = () => {
 				.then(() => {
 					console.log('SignalR connected.')
 
-					// Подписываемся на события прихода приватных / групповых сообщений
+					// Подписки на события от бэкенда
 					connection.on('ReceivePrivateMessage', handleReceivePrivateMessage)
 					connection.on('ReceiveGroupMessage', handleReceiveGroupMessage)
 
-					// Грузим первичные данные
+					// Первичная загрузка данных
 					loadInitialData()
 				})
 				.catch(err => {
@@ -145,7 +143,7 @@ const ChatWidget: React.FC = () => {
 				})
 		}
 
-		// cleanup: отписка при размонтировании
+		// Отписываемся при размонтировании
 		return () => {
 			connection.off('ReceivePrivateMessage', handleReceivePrivateMessage)
 			connection.off('ReceiveGroupMessage', handleReceiveGroupMessage)
@@ -153,21 +151,19 @@ const ChatWidget: React.FC = () => {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [connection, currentUserId])
 
-	// -------------------------------
-	// 4. Методы загрузки первичных данных
-	// -------------------------------
+	// --------------------------------------------------
+	// 4. Загрузка начальных данных (друзья, пользователи, группы, ...)
+	// --------------------------------------------------
 	const loadInitialData = async () => {
 		if (!connection) return
 		try {
-			// Грузим список друзей
 			const friendsFromServer = await connection.invoke<UserDto[]>('GetFriends')
 			setFriends(friendsFromServer)
 
-			// Грузим всех пользователей (кроме нас)
 			const allUsers = await connection.invoke<UserDto[]>('GetAllUsersExceptMe')
 			setAllUsersExceptMe(allUsers)
 
-			// Блокировки / группы — заглушка
+			// Заглушки для блокировок/групп
 			setBlockedUsers([])
 			setGroups([])
 		} catch (err) {
@@ -175,145 +171,159 @@ const ChatWidget: React.FC = () => {
 		}
 	}
 
-	// -------------------------------
+	// --------------------------------------------------
 	// 5. Обработчики входящих сообщений
-	// -------------------------------
-
-	/**
-	 * Пришло приватное сообщение.
-	 * Просто кладём его в общий массив allMessages,
-	 * если оно вообще адресовано мне (toUserId === currentUserId) или отправлено мной.
-	 */
+	// --------------------------------------------------
 	const handleReceivePrivateMessage = (msgDto: ChatMessageDto) => {
+		if (!currentUserId) return
 		console.log('handleReceivePrivateMessage => ', msgDto)
 
-		// Если вообще не мой userId — не обрабатываем
-		// (это для случая, если вдруг придёт сообщение, не относящееся к нам)
-		if (!currentUserId) return
-
+		// Сначала проверим, действительно ли оно нам (toUserId === currentUserId) или мы отправитель
 		const isMyMessage =
 			msgDto.fromUserId === currentUserId || msgDto.toUserId === currentUserId
+		if (!isMyMessage) return
 
-		if (isMyMessage) {
-			// Добавляем в общий список:
-			setAllMessages(prev => [...prev, msgDto])
-
-			// Проверим, открыт ли сейчас приватный чат именно с этим другом
-			// friendId = либо отправитель, либо получатель
-			const friendId =
-				msgDto.fromUserId === currentUserId
-					? msgDto.toUserId
-					: msgDto.fromUserId
-
-			if (friendId === selectedFriendId) {
-				// У нас уже открыт именно этот чат &rarr; просто добавили сообщение, всё ок
-			} else {
-				// Если чат не с этим пользователем, то увеличим счётчик непрочитанных
-				setUnreadCount(c => c + 1)
-			}
-		}
-	}
-
-	/**
-	 * Пришло групповое сообщение
-	 */
-	const handleReceiveGroupMessage = (msgDto: ChatMessageDto) => {
-		console.log('handleReceiveGroupMessage => ', msgDto)
-		if (!currentUserId) return
-		// Для примера, можно тоже хранить их в allMessages,
-		// или сделать отдельный массив groupMessages.
-		// Ниже — аналогично:
+		// Добавляем сообщение в общий список
 		setAllMessages(prev => [...prev, msgDto])
 
-		if (msgDto.groupId === selectedGroupId) {
-			// уже в текущем чате
-		} else {
-			setUnreadCount(c => c + 1)
+		// Если отправитель - НЕ мы
+		if (msgDto.fromUserId !== currentUserId) {
+			const fromUserId = msgDto.fromUserId
+
+			// Убедимся, что такой пользователь есть в allUsersExceptMe,
+			// чтобы он мог фигурировать в списке собеседников
+			if (!friends.some(f => f.userId === fromUserId)) {
+				const notKnown =
+					!allUsersExceptMe.some(u => u.userId === fromUserId) &&
+					!blockedUsers.some(b => b.userId === fromUserId)
+				if (notKnown) {
+					// Добавим "Незнакомого" в allUsersExceptMe
+					setAllUsersExceptMe(prev => [
+						...prev,
+						{
+							userId: fromUserId,
+							userName: `Неизвестный пользователь #${fromUserId}`,
+						},
+					])
+				}
+			}
+
+			// Проверим: если этот чат сейчас выбран, то мы "сразу читаем" новое сообщение
+			// (не увеличиваем непрочитанность).
+			const chatIsOpen = selectedFriendId === fromUserId && !selectedGroupId
+
+			if (!chatIsOpen) {
+				// Увеличиваем счётчик непрочитанных для fromUserId
+				setUnreadMap(prev => {
+					const oldValue = prev[fromUserId] ?? 0
+					return {
+						...prev,
+						[fromUserId]: oldValue + 1,
+					}
+				})
+			}
+		}
+
+		// Иначе если fromUserId === currentUserId, мы сами отправили — не трогаем unreadMap
+	}
+
+	const handleReceiveGroupMessage = (msgDto: ChatMessageDto) => {
+		// Аналогично, если используете группы
+		if (!currentUserId) return
+		console.log('handleReceiveGroupMessage => ', msgDto)
+		setAllMessages(prev => [...prev, msgDto])
+
+		// Проверим, открыта ли сейчас эта группа
+		const isGroupOpen = msgDto.groupId === selectedGroupId
+		if (!isGroupOpen) {
+			// Не выбрана => +1 к непрочитанным для "виртуального" groupId
+			// Но поскольку у вас групповой чат — возможно, нужен отдельный словарь (или ключ "group_123"?).
+			// Для простоты здесь опустим. Если нужно — аналогичная логика.
 		}
 	}
 
-	// -------------------------------
-	// 6. Массив сообщений, относящихся к текущему (выбранному) чату
-	// -------------------------------
-	// Если выбрали друга &rarr; приватный чат
-	// Если выбрали группу &rarr; групповой чат
-	// Иначе — пусто
-	const messages = useMemo<ChatMessageDto[]>(() => {
-		if (selectedFriendId && currentUserId) {
-			// Фильтруем, берём только те, где:
-			// (A->B) или (B->A), где A=selectedFriendId, B=currentUserId
-			return allMessages
-				.filter(m => {
-					const isDelete = false // у вас может быть m.isDeleted
-					if (isDelete) return false
+	// --------------------------------------------------
+	// 6. Формируем список "активных собеседников" (userId), чтобы можно было переключаться
+	// --------------------------------------------------
+	/**
+	 * Из массива allMessages вытаскиваем всех userId (кроме нас),
+	 * которые с нами переписывались (fromUserId или toUserId = currentUserId).
+	 * Плюс можно добавить тех, кто просто есть у нас в друзьях (без переписки).
+	 */
+	const chatPartners = useMemo<number[]>(() => {
+		if (!currentUserId) return []
+		const partnerSet = new Set<number>()
 
-					const pair1 =
-						m.fromUserId === currentUserId && m.toUserId === selectedFriendId
-					const pair2 =
-						m.fromUserId === selectedFriendId && m.toUserId === currentUserId
-					return pair1 || pair2
-				})
-				.sort((a, b) => {
-					// сортируем по дате
-					const da = new Date(a.createdAt).getTime()
-					const db = new Date(b.createdAt).getTime()
-					return da - db
-				})
-		} else if (selectedGroupId) {
-			// Групповой чат
-			return allMessages
-				.filter(m => {
-					// groupId == selectedGroupId
-					return m.groupId === selectedGroupId
-				})
-				.sort((a, b) => {
-					const da = new Date(a.createdAt).getTime()
-					const db = new Date(b.createdAt).getTime()
-					return da - db
-				})
+		// Пройдёмся по всем сообщениям
+		for (const m of allMessages) {
+			// если это приватное сообщение для/от нас
+			const involvesMe =
+				m.fromUserId === currentUserId || m.toUserId === currentUserId
+			if (involvesMe) {
+				// Собеседник:
+				const partnerId =
+					m.fromUserId === currentUserId ? m.toUserId : m.fromUserId
+				if (partnerId) {
+					partnerSet.add(partnerId)
+				}
+			}
 		}
-		return []
-	}, [allMessages, selectedFriendId, selectedGroupId, currentUserId])
 
-	// -------------------------------
-	// 7. Открытие приватного чата
-	// -------------------------------
+		// Можно ещё добавить друзей, у которых (пока!) нет переписки,
+		// чтобы можно было мгновенно начать общаться
+		for (const fr of friends) {
+			partnerSet.add(fr.userId)
+		}
+
+		// Превратим в массив
+		const arr = Array.from(partnerSet)
+
+		// Хотим, чтобы "активные" (есть непрочитанные) шли выше или сортировка по имени?
+		// Для простоты отсортируем по userId, а вы можете по любому принципу.
+		arr.sort((a, b) => a - b)
+
+		return arr
+	}, [allMessages, friends, currentUserId])
+
+	// --------------------------------------------------
+	// 7. Открыть приватный чат (при клике в левом списке или во вкладке &laquo;Друзья&raquo;)
+	// --------------------------------------------------
 	const openPrivateChat = async (friendId: number) => {
 		setSelectedFriendId(friendId)
 		setSelectedGroupId(null)
 		setActiveTab('chat')
 		setIsOpen(true)
 
-		// Сбрасываем счётчик непрочитанных (допустим)
-		setUnreadCount(0)
+		// Обнуляем непрочитанные для этого пользователя
+		setUnreadMap(prev => {
+			const copy = { ...prev }
+			copy[friendId] = 0
+			return copy
+		})
 
+		// Загружаем историю, если есть
 		try {
 			if (!connection) return
-			// Грузим историю (старые сообщения) с бэкенда
-			// и тоже добавляем их в общий массив allMessages,
-			// чтобы не потерять структуру
 			const history = await connection.invoke<ChatMessageDto[]>(
 				'GetPrivateMessages',
 				friendId
 			)
-			// Сольём с already загруженными, но исключим дубли
 			setAllMessages(prev => {
-				const all = [...prev, ...history]
-				// Удаляем дубликаты (по Id)
-				const uniqueMap = new Map<number, ChatMessageDto>()
-				for (const m of all) {
-					uniqueMap.set(m.id, m)
+				const merged = [...prev, ...history]
+				const uniqMap = new Map<number, ChatMessageDto>()
+				for (const m of merged) {
+					uniqMap.set(m.id, m)
 				}
-				return Array.from(uniqueMap.values())
+				return Array.from(uniqMap.values())
 			})
 		} catch (err) {
 			console.error('Не удалось загрузить историю личных сообщений:', err)
 		}
 	}
 
-	// -------------------------------
+	// --------------------------------------------------
 	// 8. Отправка сообщения
-	// -------------------------------
+	// --------------------------------------------------
 	const sendMessage = async () => {
 		if (!connection || !messageInput.trim() || !currentUserId) return
 
@@ -322,54 +332,32 @@ const ChatWidget: React.FC = () => {
 
 		try {
 			if (selectedFriendId) {
-				// Приватное
-				// Optimistic update — сразу в allMessages
-				const optimisticMsg: ChatMessageDto = {
-					id: Date.now(), // временный id (чтобы React мог отрисовать до прихода с сервера)
-					fromUserId: currentUserId,
-					toUserId: selectedFriendId,
-					groupId: null,
-					messageText: text,
-					createdAt: new Date().toISOString(),
-				}
-				setAllMessages(prev => [...prev, optimisticMsg])
-
 				await connection.invoke('SendPrivateMessage', selectedFriendId, text)
 			} else if (selectedGroupId) {
-				// Групповое
-				// Аналогичная логика optimistic update
-				const optimisticMsg: ChatMessageDto = {
-					id: Date.now(),
-					fromUserId: currentUserId,
-					toUserId: null,
-					groupId: selectedGroupId,
-					messageText: text,
-					createdAt: new Date().toISOString(),
-				}
-				setAllMessages(prev => [...prev, optimisticMsg])
-
 				await connection.invoke('SendGroupMessage', selectedGroupId, text)
 			}
+			// Ответ с сервера придёт в handleReceivePrivateMessage / handleReceiveGroupMessage
 		} catch (err) {
 			console.error('Ошибка отправки сообщения:', err)
 		}
 	}
 
-	// -------------------------------
-	// 9. Работа с друзьями
-	// -------------------------------
+	// --------------------------------------------------
+	// 9. Утилиты (добавить/убрать друга)
+	// --------------------------------------------------
 	const [newFriendToAdd, setNewFriendToAdd] = useState<number>(0)
 
 	const handleAddFriend = async () => {
 		if (!connection || !newFriendToAdd) return
 		try {
 			await connection.invoke('AddFriend', newFriendToAdd)
-
 			const addedUser = allUsersExceptMe.find(u => u.userId === newFriendToAdd)
 			if (addedUser) {
 				setFriends(prev => [...prev, addedUser])
+				setAllUsersExceptMe(prev =>
+					prev.filter(u => u.userId !== newFriendToAdd)
+				)
 			}
-			setAllUsersExceptMe(prev => prev.filter(u => u.userId !== newFriendToAdd))
 			setNewFriendToAdd(0)
 		} catch (error) {
 			console.error('Ошибка AddFriend:', error)
@@ -386,14 +374,13 @@ const ChatWidget: React.FC = () => {
 		}
 	}
 
-	// -------------------------------
-	// 10. Удаление сообщения, очистка истории
-	// -------------------------------
+	// --------------------------------------------------
+	// 10. Удаление сообщений / очистка истории
+	// --------------------------------------------------
 	const deleteMessage = async (msgId: number) => {
 		if (!connection) return
 		try {
 			await connection.invoke('DeleteMessage', msgId)
-			// удаляем и из allMessages
 			setAllMessages(prev => prev.filter(m => m.id !== msgId))
 		} catch (error: any) {
 			alert('Ошибка при удалении сообщения: ' + error?.message)
@@ -405,14 +392,8 @@ const ChatWidget: React.FC = () => {
 		try {
 			if (selectedFriendId) {
 				await connection.invoke('ClearPrivateHistory', selectedFriendId)
-			} else if (selectedGroupId) {
-				await connection.invoke('ClearGroupHistory', selectedGroupId)
-			}
-			// локально тоже убираем
-			if (selectedFriendId && currentUserId) {
 				setAllMessages(prev =>
 					prev.filter(m => {
-						// удаляем все, кто между currentUserId и selectedFriendId
 						const pair1 =
 							m.fromUserId === currentUserId && m.toUserId === selectedFriendId
 						const pair2 =
@@ -421,6 +402,7 @@ const ChatWidget: React.FC = () => {
 					})
 				)
 			} else if (selectedGroupId) {
+				await connection.invoke('ClearGroupHistory', selectedGroupId)
 				setAllMessages(prev => prev.filter(m => m.groupId !== selectedGroupId))
 			}
 		} catch (error: any) {
@@ -428,109 +410,125 @@ const ChatWidget: React.FC = () => {
 		}
 	}
 
-	// -------------------------------
-	// 11. Открыть/закрыть чат-виджет
-	// -------------------------------
+	// --------------------------------------------------
+	// 11. Подсчёт "глобального" счётчика непрочитанных (сумма по всем userId)
+	// --------------------------------------------------
+	const totalUnread = useMemo(() => {
+		return Object.values(unreadMap).reduce((acc, val) => acc + val, 0)
+	}, [unreadMap])
+
+	// --------------------------------------------------
+	// 12. Открыть/закрыть чат-виджет
+	// --------------------------------------------------
 	const toggleChat = () => {
 		if (!isOpen) {
-			setUnreadCount(0)
+			// Если мы открываем виджет, оставим totalUnread как есть,
+			// потому что ещё непонятно, какой чат выберем.
+			// При входе в конкретный чат (openPrivateChat) — сбрасываем unread для него.
 		}
 		setIsOpen(!isOpen)
 	}
 
-	// -------------------------------
-	// 12. Автопрокрутка вниз при новых сообщениях
-	// -------------------------------
+	// --------------------------------------------------
+	// 13. Отображение сообщений для выбранного чата
+	// --------------------------------------------------
+	const messagesForSelectedChat = useMemo<ChatMessageDto[]>(() => {
+		if (!currentUserId) return []
+		if (selectedFriendId) {
+			// приватный чат
+			return allMessages
+				.filter(m => {
+					const isMe = (id: number) => id === currentUserId
+					const pair1 = isMe(m.fromUserId) && m.toUserId === selectedFriendId
+					const pair2 =
+						m.fromUserId === selectedFriendId && isMe(m.toUserId ?? 0)
+					return pair1 || pair2
+				})
+				.sort(
+					(a, b) =>
+						new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+				)
+		} else if (selectedGroupId) {
+			// групповой
+			return allMessages
+				.filter(m => m.groupId === selectedGroupId)
+				.sort(
+					(a, b) =>
+						new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+				)
+		}
+		return []
+	}, [allMessages, selectedFriendId, selectedGroupId, currentUserId])
+
+	// --------------------------------------------------
+	// 14. Скролл вниз при появлении новых сообщений
+	// --------------------------------------------------
 	const messagesEndRef = useRef<HTMLDivElement | null>(null)
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-	}, [messages])
+	}, [messagesForSelectedChat])
 
-	// -------------------------------
-	// 13. Логика перетаскивания окна (если нужно)
-	// -------------------------------
-	const [hasBeenDragged, setHasBeenDragged] = useState(false)
-	const [position, setPosition] = useState(() => {
-		const chatWidth = 360
-		const chatHeight = 400
-		return {
-			x: window.innerWidth - chatWidth - 20,
-			y: window.innerHeight - chatHeight - 70,
+	// --------------------------------------------------
+	// 15. Утилиты для отображения
+	// --------------------------------------------------
+	// Получить имя пользователя по userId
+	const getUserName = (userId: number) => {
+		const fr = friends.find(f => f.userId === userId)
+		if (fr) return fr.userName
+		const other = allUsersExceptMe.find(u => u.userId === userId)
+		if (other) return other.userName
+		return `User #${userId}`
+	}
+
+	// Проверить, является ли userId нашим другом
+	const isFriend = (userId: number) => {
+		return friends.some(f => f.userId === userId)
+	}
+
+	// Определить цвет фона для сообщения:
+	// - наши собственные сообщения: сероватый (#444)
+	// - чужие от друга: зелёный
+	// - чужие от не-друга: синий
+	const getMessageBgColor = (m: ChatMessageDto) => {
+		if (m.fromUserId === currentUserId) {
+			return '#444'
 		}
-	})
-	const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-	const [isDragging, setIsDragging] = useState(false)
-
-	const clamp = (val: number, min: number, max: number) =>
-		Math.max(min, Math.min(val, max))
-
-	const onDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
-		e.preventDefault()
-		setHasBeenDragged(true)
-		setIsDragging(true)
-		setDragOffset({
-			x: e.clientX - position.x,
-			y: e.clientY - position.y,
-		})
+		// иначе сообщение от собеседника
+		return isFriend(m.fromUserId) ? '#2f5e2f' : '#2f4f5e'
 	}
 
-	const onDrag = (e: React.MouseEvent<HTMLDivElement>) => {
-		if (!isDragging) return
-		const chatWidth = 360
-		const chatHeight = 500
-		let newX = e.clientX - dragOffset.x
-		let newY = e.clientY - dragOffset.y
-		newX = clamp(newX, 0, window.innerWidth - chatWidth)
-		newY = clamp(newY, 0, window.innerHeight - chatHeight)
-		setPosition({ x: newX, y: newY })
-	}
-
-	const onDragEnd = () => {
-		setIsDragging(false)
-	}
-
-	// -------------------------------
-	// 14. Рендер
-	// -------------------------------
+	// --------------------------------------------------
+	// Рендер
+	// --------------------------------------------------
 	const chatWindowStyle: React.CSSProperties = {
 		...styles.chatWindow,
+		// Убираем перетаскивание, просто фиксируем снизу-справа
 		position: 'fixed',
-		...(hasBeenDragged
-			? { top: position.y, left: position.x }
-			: { bottom: '70px', right: '20px' }),
-		cursor: isDragging ? 'grabbing' : 'default',
+		bottom: '20px',
+		right: '20px',
 	}
 
 	return (
 		<>
-			{/* Кнопка чата (счётчик непрочитанных) */}
+			{/* Кнопка чата (показываем totalUnread) */}
 			<div style={styles.chatButtonContainer}>
 				<button
 					style={{
 						...styles.chatButton,
-						...(unreadCount > 0 ? styles.chatButtonUnread : {}),
+						...(totalUnread > 0 ? styles.chatButtonUnread : {}),
 					}}
 					onClick={toggleChat}
 					title='Открыть/закрыть чат'
 				>
-					{unreadCount > 0 ? `💬(${unreadCount})` : '💬'}
+					{totalUnread > 0 ? `💬(${totalUnread})` : '💬'}
 				</button>
 			</div>
 
 			{/* Окно чата */}
 			{isOpen && (
-				<div
-					style={chatWindowStyle}
-					className='chat-window-animation'
-					onMouseMove={onDrag}
-					onMouseUp={onDragEnd}
-				>
-					{/* Шапка */}
-					<div
-						style={styles.header}
-						onMouseDown={onDragStart}
-						onMouseUp={onDragEnd}
-					>
+				<div style={chatWindowStyle} className='chat-window-animation'>
+					{/* Заголовок (без перетаскивания) + кнопка закрыть */}
+					<div style={styles.header}>
 						<span>Чат</span>
 						<button style={styles.closeBtn} onClick={toggleChat}>
 							✕
@@ -571,20 +569,74 @@ const ChatWidget: React.FC = () => {
 						</button>
 					</div>
 
-					{/* Содержимое вкладок */}
-					<div style={styles.tabContent}>
-						{activeTab === 'chat' && (
-							<>
-								{/* Если не выбрали друга и не выбрали группу */}
+					{/** Основная зона контента */}
+					{activeTab === 'chat' && (
+						<div style={styles.chatContentWrapper}>
+							{/** Левая колонка: список собеседников */}
+							<div style={styles.chatListColumn}>
+								{chatPartners.length === 0 && (
+									<div
+										style={{
+											color: '#ccc',
+											textAlign: 'center',
+											marginTop: 10,
+										}}
+									>
+										Нет собеседников
+									</div>
+								)}
+								{chatPartners.map(uid => {
+									const unreadCount = unreadMap[uid] ?? 0
+									const userName = getUserName(uid)
+									const isSelected = uid === selectedFriendId
+									return (
+										<div
+											key={uid}
+											style={{
+												...styles.chatListItem,
+												backgroundColor: isSelected ? '#555' : '#3b3b3b',
+											}}
+											onClick={() => openPrivateChat(uid)}
+										>
+											<span
+												style={{
+													color: isFriend(uid) ? 'lightgreen' : 'lightblue',
+													fontWeight: 'bold',
+													marginRight: 6,
+												}}
+											>
+												{userName}
+											</span>
+											{unreadCount > 0 && (
+												<span style={{ color: '#fff', fontSize: '0.85em' }}>
+													({unreadCount})
+												</span>
+											)}
+										</div>
+									)
+								})}
+							</div>
+
+							{/** Правая колонка: конкретный чат */}
+							<div style={styles.messagesColumn}>
+								{/* Заголовок текущего чата */}
+								{selectedFriendId && (
+									<div style={styles.chatTitle}>
+										Чат с: {getUserName(selectedFriendId)}
+									</div>
+								)}
+								{selectedGroupId && (
+									<div style={styles.chatTitle}>Группа #{selectedGroupId}</div>
+								)}
 								{!selectedFriendId && !selectedGroupId && (
 									<div
 										style={{
+											color: '#ccc',
 											textAlign: 'center',
-											color: '#aaa',
-											marginTop: 20,
+											marginTop: 10,
 										}}
 									>
-										Выберите друга (или группу), чтобы начать чат
+										Выберите собеседника слева
 									</div>
 								)}
 
@@ -599,36 +651,81 @@ const ChatWidget: React.FC = () => {
 											</button>
 										</div>
 										<div style={styles.messagesContainer}>
-											{messages.length === 0 && (
+											{messagesForSelectedChat.length === 0 && (
 												<div style={{ textAlign: 'center', color: '#aaa' }}>
 													Нет сообщений
 												</div>
 											)}
-											{messages.map(m => (
-												<div key={m.id} style={styles.messageItem}>
+											{messagesForSelectedChat.map(m => {
+												const bg = getMessageBgColor(m)
+												return (
 													<div
+														key={m.id}
 														style={{
-															display: 'flex',
-															justifyContent: 'space-between',
+															...styles.messageItem,
+															backgroundColor: bg,
 														}}
 													>
-														<strong>{`От: ${m.fromUserId}`}</strong>
-														<button
-															style={styles.deleteMsgBtn}
-															onClick={() => deleteMessage(m.id)}
+														<div
+															style={{
+																display: 'flex',
+																justifyContent: 'space-between',
+															}}
 														>
-															Удалить
-														</button>
+															<strong>
+																{m.fromUserId === currentUserId
+																	? 'Я'
+																	: getUserName(m.fromUserId)}
+															</strong>
+															<button
+																style={styles.deleteMsgBtn}
+																onClick={() => deleteMessage(m.id)}
+															>
+																Удалить
+															</button>
+														</div>
+														<div>{m.messageText}</div>
+														<div style={{ fontSize: '0.8em', color: '#ccc' }}>
+															{new Date(m.createdAt).toLocaleString()}
+														</div>
 													</div>
-													<div>{m.messageText}</div>
-													<div style={{ fontSize: '0.8em', color: '#ccc' }}>
-														{new Date(m.createdAt).toLocaleString()}
-													</div>
-												</div>
-											))}
+												)
+											})}
 											<div ref={messagesEndRef} />
 										</div>
 
+										{/** Если приватный чат и пользователь не друг — кнопка добавить в друзья */}
+										{selectedFriendId && !isFriend(selectedFriendId) && (
+											<div
+												style={{
+													marginBottom: '8px',
+													backgroundColor: '#444',
+													padding: '5px',
+													borderRadius: '4px',
+												}}
+											>
+												<span>Вы не друзья с этим пользователем.</span>
+												<button
+													style={{
+														marginLeft: '8px',
+														padding: '4px 8px',
+														backgroundColor: '#007bff',
+														border: 'none',
+														borderRadius: '4px',
+														color: '#fff',
+														cursor: 'pointer',
+													}}
+													onClick={() => {
+														setNewFriendToAdd(selectedFriendId)
+														handleAddFriend()
+													}}
+												>
+													Добавить в друзья
+												</button>
+											</div>
+										)}
+
+										{/** Поле ввода сообщения */}
 										<div style={styles.inputContainer}>
 											<input
 												type='text'
@@ -649,85 +746,80 @@ const ChatWidget: React.FC = () => {
 										</div>
 									</>
 								)}
-							</>
-						)}
+							</div>
+						</div>
+					)}
 
-						{activeTab === 'friends' && (
-							<div>
-								<h4>Мои друзья:</h4>
-								{friends.length === 0 && (
-									<div style={{ color: '#ccc' }}>Пока нет друзей</div>
-								)}
-								{friends.map(fr => (
-									<div key={fr.userId} style={styles.listRow}>
-										{/* Клик по имени друга => открыть приватный чат */}
-										<span
-											onClick={() => openPrivateChat(fr.userId)}
-											style={{ cursor: 'pointer', flex: 1 }}
-											title='Открыть личный чат'
-										>
-											{fr.userName} (#{fr.userId})
-										</span>
-										<button onClick={() => removeFriend(fr.userId)}>
-											Удалить
-										</button>
-									</div>
-								))}
-
-								<hr style={{ margin: '8px 0' }} />
-								<div style={{ marginBottom: '5px' }}>Добавить в друзья:</div>
-								<div style={{ display: 'flex', gap: '5px' }}>
-									<select
-										style={{ flex: 1 }}
-										value={newFriendToAdd}
-										onChange={e => setNewFriendToAdd(Number(e.target.value))}
+					{activeTab === 'friends' && (
+						<div style={styles.tabContent}>
+							<h4>Мои друзья:</h4>
+							{friends.length === 0 && (
+								<div style={{ color: '#ccc' }}>Пока нет друзей</div>
+							)}
+							{friends.map(fr => (
+								<div key={fr.userId} style={styles.listRow}>
+									<span
+										onClick={() => openPrivateChat(fr.userId)}
+										style={{ cursor: 'pointer', flex: 1 }}
 									>
-										<option value={0}>-- Выберите пользователя --</option>
-										{allUsersExceptMe.map(u => {
-											const alreadyFriend = friends.some(
-												f => f.userId === u.userId
-											)
-											if (alreadyFriend) {
-												return null
-											}
-											return (
-												<option key={u.userId} value={u.userId}>
-													{u.userName} (#{u.userId})
-												</option>
-											)
-										})}
-									</select>
-									<button onClick={handleAddFriend}>Добавить</button>
+										{fr.userName}
+									</span>
+									<button onClick={() => removeFriend(fr.userId)}>
+										Убрать
+									</button>
 								</div>
-							</div>
-						)}
+							))}
 
-						{activeTab === 'blocked' && (
-							<div>
-								<h4>Заблокированные</h4>
-								{blockedUsers.length === 0 && (
-									<div style={{ color: '#ccc' }}>
-										Пока никого не заблокировали
-									</div>
-								)}
-								{/* ... при необходимости логику разблокировки ... */}
+							<hr style={{ margin: '8px 0' }} />
+							<div style={{ marginBottom: '5px' }}>Добавить в друзья:</div>
+							<div style={{ display: 'flex', gap: '5px' }}>
+								<select
+									style={{ flex: 1 }}
+									value={newFriendToAdd}
+									onChange={e => setNewFriendToAdd(Number(e.target.value))}
+								>
+									<option value={0}>-- Выберите пользователя --</option>
+									{allUsersExceptMe.map(u => {
+										if (friends.some(f => f.userId === u.userId)) {
+											return null
+										}
+										return (
+											<option key={u.userId} value={u.userId}>
+												{u.userName}
+											</option>
+										)
+									})}
+								</select>
+								<button onClick={handleAddFriend}>Добавить</button>
 							</div>
-						)}
+						</div>
+					)}
 
-						{activeTab === 'groups' && (
-							<div>
-								<h4>Мои группы</h4>
-								{groups.length === 0 && (
-									<div style={{ color: '#ccc' }}>Пока нет групп</div>
-								)}
-								{/* ... логика групп ... */}
-							</div>
-						)}
-					</div>
+					{activeTab === 'blocked' && (
+						<div style={styles.tabContent}>
+							<h4>Заблокированные</h4>
+							{blockedUsers.length === 0 && (
+								<div style={{ color: '#ccc' }}>
+									Пока никого не заблокировали
+								</div>
+							)}
+							{/* ... логика по разблокировке ... */}
+						</div>
+					)}
+
+					{activeTab === 'groups' && (
+						<div style={styles.tabContent}>
+							<h4>Мои группы</h4>
+							{groups.length === 0 && (
+								<div style={{ color: '#ccc' }}>Пока нет групп</div>
+							)}
+							{/* ... кнопка создать группу / список групп ... */}
+						</div>
+					)}
 				</div>
 			)}
 
-			{/* Анимация появления окна */}
+			{/* Анимация "появления" окна чата */}
 			<style>{`
         .chat-window-animation {
           animation: slideUp 0.4s ease forwards;
@@ -763,9 +855,9 @@ const ChatWidget: React.FC = () => {
 
 export default ChatWidget
 
-// -------------------------------
-// Стили (без изменений):
-// -------------------------------
+// --------------------------------------------------
+// Стили
+// --------------------------------------------------
 const styles: { [key: string]: React.CSSProperties } = {
 	chatButtonContainer: {
 		position: 'fixed',
@@ -789,7 +881,12 @@ const styles: { [key: string]: React.CSSProperties } = {
 		animation: 'pulse 1.5s infinite',
 	},
 	chatWindow: {
-		width: '360px',
+		// Увеличим изначальный размер и дадим возможность ресайзить:
+		width: '600px',
+		height: '500px',
+		resize: 'both',
+		overflow: 'auto',
+
 		display: 'flex',
 		flexDirection: 'column',
 		boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
@@ -797,7 +894,8 @@ const styles: { [key: string]: React.CSSProperties } = {
 		zIndex: 9999,
 		borderRadius: '6px',
 		color: '#fff',
-		maxHeight: '500px',
+		minWidth: '300px',
+		minHeight: '300px',
 	},
 	header: {
 		backgroundColor: '#555',
@@ -809,7 +907,7 @@ const styles: { [key: string]: React.CSSProperties } = {
 		alignItems: 'center',
 		borderTopLeftRadius: '6px',
 		borderTopRightRadius: '6px',
-		cursor: 'grab',
+		// Убрали cursor: 'grab', т.к. больше не двигаем
 	},
 	closeBtn: {
 		background: 'transparent',
@@ -840,20 +938,60 @@ const styles: { [key: string]: React.CSSProperties } = {
 		cursor: 'pointer',
 		fontWeight: 'bold',
 	},
+	// Вкладка "просто контент"
 	tabContent: {
 		flex: 1,
 		padding: '8px',
 		overflowY: 'auto',
 	},
-	messagesContainer: {
-		backgroundColor: '#2b2b2b',
-		maxHeight: '270px',
+
+	// --------------------------------------------------
+	// 2-колонка для вкладки "Чат"
+	// --------------------------------------------------
+	chatContentWrapper: {
+		display: 'flex',
+		flex: 1,
+		height: '100%',
+	},
+	chatListColumn: {
+		width: '150px',
+		borderRight: '1px solid #444',
 		overflowY: 'auto',
-		paddingRight: '5px',
+		paddingTop: '8px',
+	},
+	messagesColumn: {
+		flex: 1,
+		display: 'flex',
+		flexDirection: 'column',
+		padding: '8px',
+	},
+	chatListItem: {
+		backgroundColor: '#3b3b3b',
+		margin: '4px 8px',
+		padding: '6px',
+		borderRadius: '4px',
+		cursor: 'pointer',
+		display: 'flex',
+		alignItems: 'center',
+	},
+	chatTitle: {
+		fontWeight: 'bold',
 		marginBottom: '5px',
 	},
+
+	// --------------------------------------------------
+	// Сами сообщения
+	// --------------------------------------------------
+	messagesContainer: {
+		flex: 1,
+		backgroundColor: '#2b2b2b',
+		overflowY: 'auto',
+		marginBottom: '5px',
+		paddingRight: '5px',
+		border: '1px solid #444',
+		borderRadius: '4px',
+	},
 	messageItem: {
-		backgroundColor: '#3b3b3b',
 		padding: '6px',
 		borderRadius: '4px',
 		marginBottom: '6px',
@@ -865,6 +1003,19 @@ const styles: { [key: string]: React.CSSProperties } = {
 		fontSize: '0.9rem',
 		cursor: 'pointer',
 	},
+
+	// --------------------------------------------------
+	// Кнопки "Очистить историю" / поле ввода
+	// --------------------------------------------------
+	clearHistoryBtn: {
+		backgroundColor: '#d26700',
+		border: 'none',
+		padding: '6px 10px',
+		borderRadius: '4px',
+		cursor: 'pointer',
+		color: '#fff',
+		fontSize: '0.8rem',
+	},
 	inputContainer: {
 		display: 'flex',
 		alignItems: 'center',
@@ -872,8 +1023,7 @@ const styles: { [key: string]: React.CSSProperties } = {
 		gap: '4px',
 		borderTop: '1px solid #444',
 		backgroundColor: '#333',
-		borderBottomLeftRadius: '6px',
-		borderBottomRightRadius: '6px',
+		borderRadius: '4px',
 	},
 	inputField: {
 		flex: 1,
@@ -895,15 +1045,10 @@ const styles: { [key: string]: React.CSSProperties } = {
 		fontSize: '0.9rem',
 		outline: 'none',
 	},
-	clearHistoryBtn: {
-		backgroundColor: '#d26700',
-		border: 'none',
-		padding: '6px 10px',
-		borderRadius: '4px',
-		cursor: 'pointer',
-		color: '#fff',
-		fontSize: '0.8rem',
-	},
+
+	// --------------------------------------------------
+	// Список друзей
+	// --------------------------------------------------
 	listRow: {
 		display: 'flex',
 		gap: '5px',
