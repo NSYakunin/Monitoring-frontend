@@ -64,51 +64,45 @@
 
 ## Структура проекта
 ```plaintext
-Monitoring.sln
- ├─ Monitoring.Domain
- │   └─ Entities
- │       ├─ WorkItem.cs
- |       ├─ WorkRequest.cs
- │       └─ Notification.cs
- |       
- ├─ Monitoring.Application
- │   ├─ Interfaces
- │   │   ├─ IWorkItemService.cs
- │   │   ├─ IUserSettingsService.cs
- │   │   ├─ ILoginService.cs
- |   |   ├─ IWorkRequestService.cs
- │   │   └─ INotificationService.cs
- │   ├─ DTO
- │   │   ├─ CreateRequestDto.cs
- |   |   ├─ DivisionDto.cs
- |   |   ├─ PrivacySettingsDto.cs
- |   |   └─ StatusChangeDto.cs
- │   ├─ Services
- │   │   └─ ReportGenerator.cs
- |   |   ├─ ReportGeneratorExcel.cs
- |   |   └─ ReportGeneratorWord.cs
- │   └─ ...
- ├─ Monitoring.Infrastructure
- │   ├─ Services
- |   |   ├─ NotificationService.cs
- |   |   ├─ WorkRequestService.cs
- │   │   ├─ UserSettingsService.cs
- │   │   ├─ WorkItemService.cs
- │   │   └─ LoginService.cs
- │   └─ ...
- └─ Monitoring.UI
-     ├─ Pages
-     |   ├─ Shared
-     |   |   ├─ _Layout.cshtml
-     |   |   └─ _WorkItemsTablePartial.cshtml
-     │   ├─ Index.cshtml
-     │   ├─ Index.cshtml.cs
-     │   ├─ Login.cshtml
-     │   ├─ Login.cshtml.cs
-     │   ├─ Settings.cshtml
-     │   ├─ Settings.cshtml.cs
-     │   └─ Shared Partials (партиалы)
-     ├─ wwwroot
-     ├─ appsettings.json
-     └─ Program.cs
+MONITORING-FRONTEND/
+├── public/
+├── src/
+│   ├── api/
+│   │   ├── authApi.ts
+│   │   ├── myRequestsApi.ts
+│   │   ├── notificationsApi.ts
+│   │   ├── performanceApi.ts
+│   │   ├── settingsApi.ts
+│   │   └── workItemsApi.ts
+│   ├── components/
+│   │   ├── ChatWidget/
+│   │   ├── Layout/
+│   │   │   ├── Layout.css
+│   │   │   └── Layout.tsx
+│   │   ├── ChatWidget.tsx
+│   │   ├── RequestModal.css
+│   │   └── RequestModal.tsx
+│   ├── pages/
+│   │   ├── HomePage/
+│   │   │   ├── HomePage.css
+│   │   │   └── HomePage.tsx
+│   │   ├── LoginPage/
+│   │   │   ├── LoginPage.css
+│   │   │   └── LoginPage.tsx
+│   │   ├── MyRequestsPage/
+│   │   │   ├── MyRequestsPage.css
+│   │   │   └── MyRequestsPage.tsx
+│   │   ├── PerformancePage/
+│   │   │   └── PerformancePage.tsx
+│   │   └── SettingsPage/
+│   │       ├── SettingsPage.css
+│   │       └── SettingsPage.tsx
+│   ├── App.css
+│   ├── App.test.tsx
+│   ├── App.tsx
+│   ├── index.css
+│   ├── index.tsx
+│   └── react-app-env.d.ts
+├── logo.svg
+└── logom.png
 
